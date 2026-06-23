@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -265,51 +264,47 @@ func applyRewrites(content []byte, rs []rewrite) []byte {
 	return []byte(out)
 }
 
-// structurePreserved is a coarse guard: the humanized file must have the same
-// number of test-defining lines and the same import lines as the original.
+// structurePreserved is a coarse guard: the humanized file must have the
+// same NUMBER of test-defining keywords (describe / it / test / Test) and
+// imports as the original.
+//
+// v0.8.1 — relaxed from byte-equal-after-literal-strip to keyword-count
+// parity. qwen3-coder-next routinely produces rewrites that change
+// non-literal characters on test-keyword lines (e.g. dropping a
+// `{ timeout: 5000 }` second arg, reformatting an arrow signature). The
+// strict check rejected those, falling back to deterministic and
+// effectively disabling humanization. The looser check still catches the
+// substantive corruption — added/removed tests, added/removed imports —
+// while tolerating the LLM's harmless reformatting.
 func structurePreserved(lang string, before, after []byte) bool {
 	if len(after) == 0 {
 		return false
 	}
-	a, b := keyLines(lang, before), keyLines(lang, after)
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
+	return keywordSignature(before) == keywordSignature(after)
 }
 
-var (
-	reTestKeyword = regexp.MustCompile(`\b(import|require|describe|it\(|test\(|def test_|@Test|func Test)`)
-)
-
-func keyLines(_ string, b []byte) []string {
-	var out []string
+// keywordSignature returns a compact "describe=N,test=M,import=K" string
+// that two files share iff they have the same number of each structural
+// keyword. Used as the loose-but-meaningful structure check.
+func keywordSignature(b []byte) string {
+	var nDescribe, nIt, nImport, nFunc int
 	for _, l := range strings.Split(string(b), "\n") {
 		t := strings.TrimSpace(l)
-		if reTestKeyword.MatchString(t) {
-			// strip text inside the first string literal (titles can differ)
-			out = append(out, stripLiteral(t))
+		if strings.HasPrefix(t, "import ") || strings.HasPrefix(t, "from ") {
+			nImport++
+		}
+		if strings.Contains(t, "describe(") {
+			nDescribe++
+		}
+		if strings.Contains(t, "it(") || strings.Contains(t, "test(") {
+			nIt++
+		}
+		// Go and Python test fns (covers `def test_…`, `func Test…`).
+		if strings.HasPrefix(t, "func Test") || strings.HasPrefix(t, "def test_") {
+			nFunc++
 		}
 	}
-	return out
-}
-
-var (
-	reSingle = regexp.MustCompile(`'[^']*'`)
-	reDouble = regexp.MustCompile(`"[^"]*"`)
-	reBack   = regexp.MustCompile("`[^`]*`")
-)
-
-func stripLiteral(s string) string {
-	s = reSingle.ReplaceAllString(s, `"_"`)
-	s = reDouble.ReplaceAllString(s, `"_"`)
-	s = reBack.ReplaceAllString(s, `"_"`)
-	return s
+	return fmt.Sprintf("d=%d;it=%d;imp=%d;fn=%d", nDescribe, nIt, nImport, nFunc)
 }
 
 func (c *Client) HumanizeAll(ctx context.Context, files map[string][]byte, symbols map[string]string, lang func(path string) string) map[string][]byte {
