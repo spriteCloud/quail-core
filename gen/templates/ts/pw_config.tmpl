@@ -20,15 +20,19 @@ import { defineBddConfig } from 'playwright-bdd'
 
 const BASE_URL = process.env.BASE_URL ?? '{{.PageURL}}'
 
-// Stealth parity with the probe. The probe defaults to stealth-on
-// (QUAIL_STEALTH=on); the generated tests inherit that posture so
-// the site sees the same browser-fingerprint when the suite runs.
-// Cheap-tier stealth — flips the two signals mid-tier bot detection
-// most often trips on (navigator.webdriver = true, "HeadlessChrome"
-// in the UA). Does NOT defeat enterprise WAF or IP-level blocking;
-// that needs a residential proxy.
+// Stealth parity with the probe. Three tiers via QUAIL_STEALTH:
+//   off    → stock Playwright, no stealth.
+//   on     → cheap-tier (default): UA override + the
+//            --disable-blink-features=AutomationControlled launch flag.
+//            Flips the two signals mid-tier bot detection trips on
+//            (navigator.webdriver = true, "HeadlessChrome" in the UA).
+//   heavy  → cheap-tier + playwright-extra/StealthPlugin in the worker
+//            browser fixture (see tests/e2e/_fixtures.ts). Closes ~10
+//            more fingerprint surfaces (codec list, plugin array,
+//            WebGL vendor, chrome runtime…). Chromium-only.
 //
-// Disable with QUAIL_STEALTH=off to run with stock Playwright.
+// None of these defeat IP-level blocking; that needs a residential
+// proxy.
 const STEALTH_ON = (process.env.QUAIL_STEALTH || 'on').toLowerCase() !== 'off'
 
 const BROWSERS = (process.env.QUAIL_BROWSERS ?? 'chromium')
