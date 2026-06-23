@@ -82,3 +82,65 @@ func TestStructurePreserved_RejectsEmpty(t *testing.T) {
 		t.Error("empty after should reject")
 	}
 }
+
+// v0.8.3 — actual qwen3-coder-next corruption observed against
+// spritecloud.com: backticks dropped from a template-literal title.
+// Keyword counts still match; the old loosen-too-much check accepted
+// this and the suite failed to parse with `Unexpected token`.
+func TestStructurePreserved_RejectsDroppedBacktick(t *testing.T) {
+	before := []byte(`import { test } from '@playwright/test'
+for (const zoom of [2.0, 4.0]) {
+  test(` + "`handles ${zoom * 100}% zoom`" + `, async ({ page }) => {})
+}
+`)
+	after := []byte(`import { test } from '@playwright/test'
+for (const zoom of [2.0, 4.0]) {
+  test(handles ${zoom * 100}% zoom, async ({ page }) => {})
+}
+`)
+	if structurePreserved("ts", before, after) {
+		t.Error("dropped backticks around template-literal title should fail syntax sanity")
+	}
+}
+
+// v0.8.3 — observed against spritecloud.com: LLM replaced an
+// `expect(body).not.toContain(...)` line with bare English prose.
+// Keyword counts still match. This must fail.
+func TestStructurePreserved_RejectsBareEnglishStatement(t *testing.T) {
+	before := []byte(`import { test, expect } from '@playwright/test'
+test('foo', async ({ page }) => {
+  const body = ''
+  expect(body).not.toContain('Traceback')
+  expect(body).not.toContain('at Object')
+})
+`)
+	after := []byte(`import { test, expect } from '@playwright/test'
+test('foo', async ({ page }) => {
+  const body = ''
+  No server error traceback in body
+  No stack trace in body
+})
+`)
+	if structurePreserved("ts", before, after) {
+		t.Error("bare-English replacement of an expect line should fail syntax sanity")
+	}
+}
+
+// Inverse — the LLM's well-formed humanize-only rewrite must still
+// pass. Keyword counts unchanged, every test-call has a quoted first
+// arg, quote balance preserved.
+func TestStructurePreserved_AcceptsWellFormedHumanize(t *testing.T) {
+	before := []byte(`import { test, expect } from '@playwright/test'
+test('Spritecloud foo', async ({ page }) => {
+  await page.goto('/')
+})
+`)
+	after := []byte(`import { test, expect } from '@playwright/test'
+test('Verify the foo journey', async ({ page }) => {
+  await page.goto('/')
+})
+`)
+	if !structurePreserved("ts", before, after) {
+		t.Error("well-formed title rewrite should pass")
+	}
+}
