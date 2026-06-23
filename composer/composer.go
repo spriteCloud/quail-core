@@ -122,6 +122,11 @@ Given I am not signed in
 When I submit the form twice in rapid succession
 Then the form is not double-submitted
 When I reload the page
+Then the element "<selector>" is visible
+Then the element "<selector>" contains text "<text>"
+Then the element "<selector>" has attribute "<name>" equal to "<value>"
+Then there are <n> "<selector>" elements
+Then the URL has query parameter "<key>" equal to "<value>"
 `
 
 // Propose asks the LLM for up to n additional scenarios for the
