@@ -20,6 +20,17 @@ import { defineBddConfig } from 'playwright-bdd'
 
 const BASE_URL = process.env.BASE_URL ?? '{{.PageURL}}'
 
+// Stealth parity with the probe. The probe defaults to stealth-on
+// (QUAIL_STEALTH=on); the generated tests inherit that posture so
+// the site sees the same browser-fingerprint when the suite runs.
+// Cheap-tier stealth — flips the two signals mid-tier bot detection
+// most often trips on (navigator.webdriver = true, "HeadlessChrome"
+// in the UA). Does NOT defeat enterprise WAF or IP-level blocking;
+// that needs a residential proxy.
+//
+// Disable with QUAIL_STEALTH=off to run with stock Playwright.
+const STEALTH_ON = (process.env.QUAIL_STEALTH || 'on').toLowerCase() !== 'off'
+
 const BROWSERS = (process.env.QUAIL_BROWSERS ?? 'chromium')
   .split(',')
   .map(s => s.trim().toLowerCase())
@@ -65,6 +76,14 @@ export default defineConfig({
     // first-paint and lazy-loaded fonts; tune via QUAIL_NAV_TIMEOUT
     // for projects with a different perf profile.
     navigationTimeout: Number(process.env.QUAIL_NAV_TIMEOUT ?? 45_000),
+    // Cheap-tier stealth — see STEALTH_ON declaration above.
+    ...(STEALTH_ON && {
+      userAgent:
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      launchOptions: {
+        args: ['--disable-blink-features=AutomationControlled'],
+      },
+    }),
   },
   projects: BROWSERS
     .filter((b): b is 'chromium' | 'firefox' | 'webkit' =>
