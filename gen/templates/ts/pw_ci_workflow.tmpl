@@ -50,8 +50,16 @@ jobs:
             npm install --no-audit --no-fund
           fi
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        # `--with-deps {{.DefaultBrowsers}}` installs only the engine(s) the probe
+        # picked at generation time — saves ~5-10 min of cache-warming
+        # for browsers we won't run. Override at run time with
+        # `QUAIL_BROWSERS=...` (the test command below honours the env).
+        run: npx playwright install --with-deps {{.DefaultBrowsers}}
       - name: Run Playwright tests
+        env:
+          # Engine default baked from QUAIL_BROWSERS at generation
+          # time (probe parity). Overridable at run time.
+          QUAIL_BROWSERS: ${{ "{{" }} env.QUAIL_BROWSERS != '' && env.QUAIL_BROWSERS || '{{.DefaultBrowsers}}' {{ "}}" }}
         run: npx playwright test --reporter=html,list
       - name: Upload HTML report
         if: always()

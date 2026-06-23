@@ -165,6 +165,27 @@ func TestCompanionTemplates_ConfigEmitsBaseURLFromProbe(t *testing.T) {
 	mustContain(t, body, "baseURL: BASE_URL")
 	mustContain(t, body, "testDir: './tests/e2e'")
 	mustContain(t, body, "trace: 'on-first-retry'")
+	// v0.10: BROWSERS default sourced from renderData.DefaultBrowsers
+	// (env QUAIL_BROWSERS at generation time, default "chromium").
+	mustContain(t, body, "process.env.QUAIL_BROWSERS ?? 'chromium'")
+}
+
+func TestCompanionTemplates_ConfigBakesQUAILBROWSERSEnv(t *testing.T) {
+	t.Setenv("QUAIL_BROWSERS", "firefox")
+	sym := ast.Symbol{Name: "X", Kind: ast.KindComponent, File: "https://x.test", Language: "ts"}
+	it := plan.Item{
+		Symbol:   sym,
+		Symbols:  []ast.Symbol{sym},
+		PageURL:  "https://x.test",
+		Template: plan.TmplPlaywrightConfig,
+		OutPath:  "playwright.config.ts",
+	}
+	out, err := Render([]plan.Item{it}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out[0].Content)
+	mustContain(t, body, "process.env.QUAIL_BROWSERS ?? 'firefox'")
 }
 
 func TestCompanionTemplates_ReadmeListsKindsAndFiles(t *testing.T) {

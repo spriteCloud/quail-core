@@ -35,7 +35,12 @@ const BASE_URL = process.env.BASE_URL ?? '{{.PageURL}}'
 // proxy.
 const STEALTH_ON = (process.env.QUAIL_STEALTH || 'on').toLowerCase() !== 'off'
 
-const BROWSERS = (process.env.QUAIL_BROWSERS ?? 'chromium')
+// Default baked at generation time from QUAIL_BROWSERS env (see
+// quail-core/gen renderData.DefaultBrowsers). Override at run time
+// with `QUAIL_BROWSERS=...` — useful when the probe picked firefox
+// to slip past an Akamai-class WAF and you want to A/B chromium
+// locally.
+const BROWSERS = (process.env.QUAIL_BROWSERS ?? '{{.DefaultBrowsers}}')
   .split(',')
   .map(s => s.trim().toLowerCase())
   .filter(Boolean)
