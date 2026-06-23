@@ -220,6 +220,34 @@ When('I reload the page', async ({ page }) => {
   await page.waitForLoadState('domcontentloaded')
 })
 
+// ─────────────────────────────────────────────────────────────
+// vNEXT — element-state and URL query assertions. Five patterns
+// the LLM composer can now reach for; each backed by a real
+// Playwright primitive so no proposed scenario can be a no-op.
+// Steps #1 and #4 delegate to steps.* helper verbs to keep the
+// most-reused shapes one wiring layer apart.
+// ─────────────────────────────────────────────────────────────
+
+Then(/^the element "([^"]+)" is visible$/, async ({ page }, selector: string) => {
+  await steps.expectVisible(page, selector)
+})
+
+Then(/^the element "([^"]+)" contains text "([^"]+)"$/, async ({ page }, selector: string, text: string) => {
+  await expect(page.locator(selector).first()).toContainText(new RegExp(escapeRegex(text), 'i'))
+})
+
+Then(/^the element "([^"]+)" has attribute "([^"]+)" equal to "([^"]+)"$/, async ({ page }, selector: string, attr: string, value: string) => {
+  await expect(page.locator(selector).first()).toHaveAttribute(attr, value)
+})
+
+Then(/^there are (\d+) "([^"]+)" elements$/, async ({ page }, n: string, selector: string) => {
+  await steps.expectCount(page, selector, Number(n))
+})
+
+Then(/^the URL has query parameter "([^"]+)" equal to "([^"]+)"$/, async ({ page }, key: string, value: string) => {
+  expect(new URL(page.url()).searchParams.get(key)).toBe(value)
+})
+
 function escapeRegex(s: string): string {
   return s.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')
 }

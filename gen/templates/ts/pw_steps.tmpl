@@ -133,6 +133,16 @@ async function expectH1(page: Page, text: string | RegExp): Promise<void> {
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
 }
 
+/** Assert a selector is visible (first match). */
+async function expectVisible(page: Page, selector: string): Promise<void> {
+  await expect(page.locator(selector).first()).toBeVisible()
+}
+
+/** Assert a selector matches exactly `n` elements. */
+async function expectCount(page: Page, selector: string, n: number): Promise<void> {
+  await expect(page.locator(selector)).toHaveCount(n)
+}
+
 /**
  * Convert-journey shorthand: visit a path, fill the form, submit, and
  * assert the page didn't surface an error region. Use for newsletter /
@@ -167,6 +177,8 @@ export const steps = {
   search,
   expectAt,
   expectH1,
+  expectVisible,
+  expectCount,
   convert,
   authenticate,
 }
