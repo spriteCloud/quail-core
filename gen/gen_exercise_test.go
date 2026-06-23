@@ -136,11 +136,14 @@ func TestCompanionTemplates_FixturesEmitsFixtureModule(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(out[0].Content)
-	mustContain(t, body, "import { test as base, expect } from '@playwright/test'")
+	mustContain(t, body, "import { test as base, expect, chromium as chrStock } from '@playwright/test'")
 	mustContain(t, body, "export const test = base.extend")
 	mustContain(t, body, "page.on('pageerror'")
 	mustContain(t, body, "auto: true")
 	mustContain(t, body, "export { expect }")
+	mustContain(t, body, "STEALTH_HEAVY")
+	mustContain(t, body, "playwright-extra")
+	mustContain(t, body, "puppeteer-extra-plugin-stealth")
 }
 
 func TestCompanionTemplates_ConfigEmitsBaseURLFromProbe(t *testing.T) {
