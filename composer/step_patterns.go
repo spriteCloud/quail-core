@@ -19,8 +19,9 @@ import (
 // regex so we can validate `.feature` step bodies against it the same
 // way IsGherkinSafe does for the frozen registry.
 type StepPattern struct {
-	Raw   string         // exact source slice, e.g. `'I open the landing page'` or `/^I open the page "([^"]+)"$/`
-	Match *regexp.Regexp // anchored regex used to validate step bodies
+	Keyword string         // "Given" | "When" | "Then" — captured from the step def
+	Raw     string         // exact source slice, e.g. `'I open the landing page'` or `/^I open the page "([^"]+)"$/`
+	Match   *regexp.Regexp // anchored regex used to validate step bodies
 }
 
 // reStepDefCall matches a `Given(/When(/Then(` invocation in the rendered
@@ -35,18 +36,20 @@ type StepPattern struct {
 // pattern just won't be exposed to validation and the .feature side
 // will fail IsGherkinSafeAgainst, dropping the rewrite back to
 // deterministic.
-var reStepDefCall = regexp.MustCompile(`(?m)^\s*(?:Given|When|Then)\(\s*('[^']*'|/[^\n]+?/)\s*,`)
+var reStepDefCall = regexp.MustCompile(`(?m)^\s*(Given|When|Then)\(\s*('[^']*'|/[^\n]+?/)\s*,`)
 
 // ExtractStepPatterns walks a rendered `.steps.ts` file and returns
 // every Given/When/Then pattern in source order.
 func ExtractStepPatterns(stepsTS []byte) []StepPattern {
 	var out []StepPattern
 	for _, m := range reStepDefCall.FindAllSubmatch(stepsTS, -1) {
-		raw := string(m[1])
+		keyword := string(m[1])
+		raw := string(m[2])
 		sp, ok := compileStepPattern(raw)
 		if !ok {
 			continue
 		}
+		sp.Keyword = keyword
 		out = append(out, sp)
 	}
 	return out
@@ -233,4 +236,42 @@ func trimAllWS(b []byte) []byte {
 		out = append(out, c)
 	}
 	return out
+}
+
+// FormatForPrompt renders a StepPattern as a human-readable
+// "<Keyword> <text>" line suitable for the composer's system prompt.
+// Capture groups in the regex form are replaced with angle-bracketed
+// placeholders so the LLM sees the same `<param>` convention the
+// legacy hardcoded prompt used.
+//
+//	`'I open the landing page'`               → `Given I open the landing page`
+//	`/^the URL contains "([^"]+)"$/`          → `Then the URL contains "<param>"`
+//	`/^there are (\d+) "([^"]+)" elements$/`  → `Then there are <n> "<param>" elements`
+func FormatForPrompt(p StepPattern) string {
+	body := promptText(p.Raw)
+	if p.Keyword == "" {
+		return body
+	}
+	return p.Keyword + " " + body
+}
+
+func promptText(raw string) string {
+	switch {
+	case strings.HasPrefix(raw, "'") && strings.HasSuffix(raw, "'") && len(raw) >= 2:
+		// Literal: keep as-is, less surrounding quotes. cucumber-style
+		// `{string}` / `{int}` placeholders are already human-readable.
+		return raw[1 : len(raw)-1]
+	case strings.HasPrefix(raw, "/") && strings.HasSuffix(raw, "/") && len(raw) >= 2:
+		body := raw[1 : len(raw)-1]
+		body = strings.TrimPrefix(body, "^")
+		body = strings.TrimSuffix(body, "$")
+		// Replace common capture shapes with placeholder names. Order
+		// matters: more specific patterns first.
+		body = strings.ReplaceAll(body, `(\d+)`, "<n>")
+		body = strings.ReplaceAll(body, `([^"]+)`, "<param>")
+		body = strings.ReplaceAll(body, `(.+)`, "<text>")
+		body = strings.ReplaceAll(body, `(.*)`, "<text>")
+		return body
+	}
+	return raw
 }
