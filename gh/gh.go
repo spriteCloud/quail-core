@@ -136,7 +136,12 @@ func (c *Client) OpenPR(ctx context.Context, opts PROpts) (string, error) {
 	// PAT both lack the `workflow` permission and the remote rejects
 	// the entire push if even one workflow file is present. Suppress
 	// here, log once, and let the caller advertise it in the PR body.
-	if os.Getenv("GITHUB_ACTIONS") == "true" {
+	//
+	// v0.7.0 — caller can opt out via QUAIL_KEEP_WORKFLOWS=1 when it
+	// knows the github-token carries the `workflow` scope (fine-grained
+	// PAT or GitHub App). Without that scope set, the push will fail at
+	// the remote with a clear error — the caller takes responsibility.
+	if os.Getenv("GITHUB_ACTIONS") == "true" && os.Getenv("QUAIL_KEEP_WORKFLOWS") != "1" {
 		var dropped []string
 		for path := range opts.Files {
 			if strings.HasPrefix(path, ".github/workflows/") {
