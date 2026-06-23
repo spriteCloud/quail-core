@@ -43,6 +43,12 @@ type Journey struct {
 	// for the cross-page h1 assertion bug observed against
 	// spritecloud.com.
 	Pages []PageContext
+	// RegisteredPatterns is the source-ordered list of step patterns the
+	// rendered tests/e2e/steps/quail.steps.ts will expose. When non-empty
+	// the composer's system prompt is built from it dynamically; when
+	// empty, the prompt falls back to a legacy hardcoded list (kept for
+	// callers that haven't migrated to ExtractStepPatterns yet).
+	RegisteredPatterns []StepPattern
 }
 
 // PageContext is the resolved metadata of one page reachable from
@@ -68,7 +74,10 @@ type Step struct {
 	Text    string `json:"text"`    // verbatim Gherkin (placeholders substituted)
 }
 
-const systemPrompt = `You are a senior QA engineer composing additional Gherkin scenarios for a Playwright + playwright-bdd test suite.
+// systemPromptPrefix is the instruction/constraints block. Stays
+// stable across vocabulary additions; the patterns list below is
+// appended dynamically when the caller provides Journey.RegisteredPatterns.
+const systemPromptPrefix = `You are a senior QA engineer composing additional Gherkin scenarios for a Playwright + playwright-bdd test suite.
 
 You will receive a probe summary of a single user journey. The journey starts at a landing page and may chain through additional destination pages — each destination is listed with its own title and h1 so you can assert against the page the navigation actually lands on, not the landing.
 
@@ -80,6 +89,8 @@ Compose UP TO 5 additional Scenarios beyond the deterministic happy path. Prefer
 
 Do NOT propose scenarios that only assert the landing page's heading — those are already emitted deterministically.
 
+Prefer assertion variety — when multiple Then steps could close a scenario, mix in element-state assertions (visibility, contained text, attribute equality, exact count) and URL-query assertions alongside the legacy title/h1/url-fragment checks. The full registered vocabulary is listed below; use it broadly.
+
 Constraints:
 - Each step.text MUST be a verbatim match (after placeholder substitution) of one of the registered patterns below.
 - Each Scenario has 3-6 steps and starts with Given.
@@ -90,7 +101,12 @@ Constraints:
 
 Registered step patterns (substitute the angle-bracketed placeholders with concrete values):
 
-Given I open the landing page
+`
+
+// legacyPatternsBlock is the pre-dynamic-prompt hardcoded list. Used
+// as the fallback when Journey.RegisteredPatterns is empty so older
+// callers and tests continue to see the same prompt body.
+const legacyPatternsBlock = `Given I open the landing page
 Given I am on the landing page
 Given I open the page "<path>"
 When I click the link to "<href>"
@@ -129,6 +145,27 @@ Then there are <n> "<selector>" elements
 Then the URL has query parameter "<key>" equal to "<value>"
 `
 
+// systemPrompt remains the legacy combined form, exported for the
+// back-compat tests in composer_test.go that pin prompt content.
+const systemPrompt = systemPromptPrefix + legacyPatternsBlock
+
+// buildSystemPrompt assembles the system prompt with the patterns
+// block sourced from `patterns` when non-empty. When patterns is nil
+// or empty the legacy hardcoded list is used — preserves behaviour
+// for any caller that hasn't yet migrated to ExtractStepPatterns.
+func buildSystemPrompt(patterns []StepPattern) string {
+	if len(patterns) == 0 {
+		return systemPrompt
+	}
+	var b strings.Builder
+	b.WriteString(systemPromptPrefix)
+	for _, p := range patterns {
+		b.WriteString(FormatForPrompt(p))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
 // Propose asks the LLM for up to n additional scenarios for the
 // journey. Returns ([], nil) when the model declines or returns
 // nothing useful — never an error.
@@ -151,10 +188,11 @@ func ProposeWithFeedback(ctx context.Context, llm Client, j Journey, n int, fb F
 		n = 3
 	}
 	user := buildUserPrompt(j, n) + fb.String()
-	scenarios, err := proposeOnce(ctx, llm, systemPrompt, user)
+	system := buildSystemPrompt(j.RegisteredPatterns)
+	scenarios, err := proposeOnce(ctx, llm, system, user)
 	if err != nil {
 		// Single retry with a stricter "JSON ONLY" reinforcement.
-		strict := systemPrompt + "\n\nIMPORTANT: Your previous response was not parseable. Return ONLY a JSON array with no trailing commas, no commentary, no markdown fences. Validate your output is parseable before sending."
+		strict := system + "\n\nIMPORTANT: Your previous response was not parseable. Return ONLY a JSON array with no trailing commas, no commentary, no markdown fences. Validate your output is parseable before sending."
 		scenarios, err = proposeOnce(ctx, llm, strict, user)
 		if err != nil {
 			return nil, err
