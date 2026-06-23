@@ -144,3 +144,52 @@ test('Verify the foo journey', async ({ page }) => {
 		t.Error("well-formed title rewrite should pass")
 	}
 }
+
+// v0.10.1 — observed in the v1.0.12 probe-demo bot PR against ING:
+// humanize rewrote a `@kind:a11y-prefs` title and left raw apostrophes
+// around the word `more` while keeping the outer single quotes,
+// producing `test('@kind:a11y-prefs — respects 'more' contrast …', …)`.
+// Quote count is even (4) and the first arg after `test(` IS a `'`, so
+// the old regex-based jsSyntaxSane passed it. Real TS parsing
+// rejects it.
+func TestStructurePreserved_RejectsApostropheInsideSingleQuotedTitle(t *testing.T) {
+	before := []byte(`import { test } from '@playwright/test'
+test('contrast pref', async ({ browser }) => {
+  const context = await browser.newContext({ contrast: 'more' })
+  await context.newPage()
+})
+`)
+	after := []byte(`import { test } from '@playwright/test'
+test('@kind:a11y-prefs — respects 'more' contrast preference', async ({ browser }) => {
+  const context = await browser.newContext({ contrast: 'more' })
+  await context.newPage()
+})
+`)
+	if structurePreserved("ts", before, after) {
+		t.Error("apostrophes inside a single-quoted title break TS parse — should fail")
+	}
+}
+
+// v0.10.1 — observed in the same bot PR: humanize replaced an
+// `expect(x, 'message').toBe(true)` second-arg string with bare English
+// prose, producing `expect(bodyHasText, body should contain visible
+// text at this viewport).toBe(true)`. Quote count unchanged, line
+// contains `(`,`)`,`.`,`,` so the old bare-prose regex never matched.
+// Real TS parsing rejects it.
+func TestStructurePreserved_RejectsBareProseAsExpectMessageArg(t *testing.T) {
+	before := []byte(`import { expect, test } from '@playwright/test'
+test('renders', async ({ page }) => {
+  const bodyHasText = await page.evaluate(() => (document.body.innerText || '').trim().length > 0)
+  expect(bodyHasText, 'body should contain visible text at this viewport').toBe(true)
+})
+`)
+	after := []byte(`import { expect, test } from '@playwright/test'
+test('renders', async ({ page }) => {
+  const bodyHasText = await page.evaluate(() => (document.body.innerText || '').trim().length > 0)
+  expect(bodyHasText, body should contain visible text at this viewport).toBe(true)
+})
+`)
+	if structurePreserved("ts", before, after) {
+		t.Error("bare-prose second arg to expect() is invalid TS — should fail")
+	}
+}

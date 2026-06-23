@@ -13,11 +13,11 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	esbuild "github.com/evanw/esbuild/pkg/api"
 	"github.com/spriteCloud/quail-core/composer"
 	"github.com/spriteCloud/quail-core/config"
 	"github.com/spriteCloud/quail-core/log"
@@ -265,18 +265,18 @@ func applyRewrites(content []byte, rs []rewrite) []byte {
 	return []byte(out)
 }
 
-// structurePreserved is a coarse guard for the humanized file. Two
-// checks must both pass:
-//  1. Keyword-count parity — same number of describe / it / test /
-//     import / func Test / def test_ as the original. Catches dropped
-//     or added blocks.
-//  2. Syntax sanity for JS/TS — each test/describe/it call's first arg
-//     is a string literal AND quote characters balance (every opening
-//     quote has a closing pair). Catches the v0.8.1-too-loose hole
-//     where qwen3-coder-next produced syntactically-broken rewrites
-//     like `test(handles ${zoom * 100}% zoom, async ...)` (dropped
-//     backticks) or replaced an `expect(...)` line with bare English
-//     prose.
+// structurePreserved is the guard for the humanized file. Two checks
+// must both pass:
+//  1. Keyword-count parity (keywordSignature) — same number of
+//     describe / it / test / import / func Test / def test_ as the
+//     original. Catches dropped or added blocks at the semantic level.
+//  2. For JS/TS, jsParses runs the bytes through esbuild's TS parser.
+//     If it fails, Playwright's transform pipeline (which also uses
+//     esbuild) would fail at load time with `SyntaxError: Unexpected
+//     token`. Catches every corruption mode the prior regex-based
+//     jsSyntaxSane heuristics missed (apostrophes inside single-quoted
+//     titles, expect(_, bare prose) message args, dropped template
+//     literals, …).
 //
 // Anything failing either falls back to deterministic; the LLM
 // rewrite is discarded.
@@ -287,7 +287,7 @@ func structurePreserved(lang string, before, after []byte) bool {
 	if keywordSignature(before) != keywordSignature(after) {
 		return false
 	}
-	if isJSLike(lang) && !jsSyntaxSane(after) {
+	if isJSLike(lang) && !jsParses(after) {
 		return false
 	}
 	return true
@@ -303,72 +303,21 @@ func isJSLike(lang string) bool {
 	return false
 }
 
-// jsSyntaxSane runs two cheap regex-based checks against the humanized
-// JS/TS source:
-//
-//   - First arg of every `(test|describe|it)\(` call is a quoted string
-//     literal (single, double, or backtick) or a regex literal.
-//   - Quote character counts (`'`, `"`, ` ` `) are each even — open/close
-//     parity. An odd count means the LLM dropped a quote somewhere.
-//
-// Neither check is a full parser; both catch the LLM-corruption modes
-// actually observed in production. Returns true when the source looks
-// syntactically sane.
-func jsSyntaxSane(b []byte) bool {
-	s := string(b)
-	for _, m := range reTestCallStart.FindAllStringIndex(s, -1) {
-		// m[1] is the index right after the `(`. Skip any whitespace,
-		// then the next char must be a quote or a regex slash.
-		i := m[1]
-		for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
-			i++
-		}
-		if i >= len(s) {
-			return false
-		}
-		c := s[i]
-		if c != '\'' && c != '"' && c != '`' && c != '/' {
-			return false
-		}
-	}
-	// Quote-balance: each kind must have an even total count. Doesn't
-	// account for escaped quotes inside strings — but the LLM rewrites
-	// titles and comments, not escape-heavy code, so over-rejection
-	// here is rare in practice and the cost (one extra retry) is low.
-	if strings.Count(s, "'")%2 != 0 {
-		return false
-	}
-	if strings.Count(s, "\"")%2 != 0 {
-		return false
-	}
-	if strings.Count(s, "`")%2 != 0 {
-		return false
-	}
-	// Bare-prose-line check. A statement-position line containing only
-	// words and spaces (no JS punctuation) almost always means the LLM
-	// replaced a real expression with an English description. Real code
-	// lines carry parens/braces/dots/equals/semicolons.
-	for _, l := range strings.Split(s, "\n") {
-		t := strings.TrimSpace(l)
-		if t == "" {
-			continue
-		}
-		if reBareProseLine.MatchString(t) {
-			return false
-		}
-	}
-	return true
+// jsParses returns true iff esbuild can parse the bytes as TypeScript.
+// We discard the emitted JS — only the parse verdict matters. This
+// replaces the v0.8.3 regex-heuristic jsSyntaxSane, which kept missing
+// new LLM corruption modes (apostrophes inside single-quoted titles,
+// expect(_, bare prose) message args, …). esbuild IS the parser
+// Playwright's transform pipeline uses, so its verdict matches what
+// the test runner will see at load time.
+func jsParses(b []byte) bool {
+	res := esbuild.Transform(string(b), esbuild.TransformOptions{
+		Loader:     esbuild.LoaderTS,
+		Sourcefile: "humanized.ts",
+		LogLevel:   esbuild.LogLevelSilent,
+	})
+	return len(res.Errors) == 0
 }
-
-// reBareProseLine matches a line that looks like a natural-language
-// sentence with no JS punctuation: starts with an uppercase letter,
-// continues with letters / spaces / a stray apostrophe, ends without
-// any of `;,(){}[].=:<>/`.
-var reBareProseLine = regexp.MustCompile(`^[A-Z][a-zA-Z' ]+[a-zA-Z]$`)
-
-// reTestCallStart matches the opening of a test-like function call,
-// capturing the index of the `(` so the caller can inspect what follows.
-var reTestCallStart = regexp.MustCompile(`\b(?:test|describe|it)\s*\(`)
 
 // keywordSignature returns a compact "describe=N,test=M,import=K" string
 // that two files share iff they have the same number of each structural
