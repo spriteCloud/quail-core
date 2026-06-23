@@ -37,7 +37,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # `cache: 'npm'` is intentionally omitted — the bot-generated PR
+          # doesn't ship a package-lock.json (deterministic templates can't
+          # commit one without running install), and setup-node hard-fails
+          # when cache is requested without a lockfile. npm install is fast
+          # enough for a demo suite; revisit if real wall-clock matters.
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then
