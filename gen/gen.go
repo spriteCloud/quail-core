@@ -1283,6 +1283,13 @@ type renderData struct {
 	LLMModel       string
 	// v0.27: integration-test context (quail.yml-derived).
 	Integration *plan.IntegrationCtx
+	// v0.10: comma-list of Playwright projects the generated suite
+	// defaults to running (e.g. "chromium", "firefox", "chromium,firefox").
+	// Sourced from QUAIL_BROWSERS at render time; the bot PR's
+	// pw_config.tmpl and pw_ci_workflow.tmpl bake this in so CI honours
+	// the engine the probe picked (Akamai-class WAFs drop chromium at
+	// the TLS layer — firefox slips past).
+	DefaultBrowsers string
 }
 
 func buildData(it plan.Item, workDir string) renderData {
@@ -1299,6 +1306,10 @@ func buildData(it plan.Item, workDir string) renderData {
 	d.PageURL = it.PageURL
 	if d.PageURL == "" {
 		d.PageURL = "/"
+	}
+	d.DefaultBrowsers = os.Getenv("QUAIL_BROWSERS")
+	if d.DefaultBrowsers == "" {
+		d.DefaultBrowsers = "chromium"
 	}
 	d.JourneyKind = it.JourneyKind
 	d.HappyArgs = happyArgs(it.Symbol)
