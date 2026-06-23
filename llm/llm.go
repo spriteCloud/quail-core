@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -264,24 +265,110 @@ func applyRewrites(content []byte, rs []rewrite) []byte {
 	return []byte(out)
 }
 
-// structurePreserved is a coarse guard: the humanized file must have the
-// same NUMBER of test-defining keywords (describe / it / test / Test) and
-// imports as the original.
+// structurePreserved is a coarse guard for the humanized file. Two
+// checks must both pass:
+//  1. Keyword-count parity — same number of describe / it / test /
+//     import / func Test / def test_ as the original. Catches dropped
+//     or added blocks.
+//  2. Syntax sanity for JS/TS — each test/describe/it call's first arg
+//     is a string literal AND quote characters balance (every opening
+//     quote has a closing pair). Catches the v0.8.1-too-loose hole
+//     where qwen3-coder-next produced syntactically-broken rewrites
+//     like `test(handles ${zoom * 100}% zoom, async ...)` (dropped
+//     backticks) or replaced an `expect(...)` line with bare English
+//     prose.
 //
-// v0.8.1 — relaxed from byte-equal-after-literal-strip to keyword-count
-// parity. qwen3-coder-next routinely produces rewrites that change
-// non-literal characters on test-keyword lines (e.g. dropping a
-// `{ timeout: 5000 }` second arg, reformatting an arrow signature). The
-// strict check rejected those, falling back to deterministic and
-// effectively disabling humanization. The looser check still catches the
-// substantive corruption — added/removed tests, added/removed imports —
-// while tolerating the LLM's harmless reformatting.
+// Anything failing either falls back to deterministic; the LLM
+// rewrite is discarded.
 func structurePreserved(lang string, before, after []byte) bool {
 	if len(after) == 0 {
 		return false
 	}
-	return keywordSignature(before) == keywordSignature(after)
+	if keywordSignature(before) != keywordSignature(after) {
+		return false
+	}
+	if isJSLike(lang) && !jsSyntaxSane(after) {
+		return false
+	}
+	return true
 }
+
+// isJSLike reports whether the language tag is one of the JS/TS dialects
+// the syntax-sanity check applies to.
+func isJSLike(lang string) bool {
+	switch lang {
+	case "ts", "tsx", "js", "jsx":
+		return true
+	}
+	return false
+}
+
+// jsSyntaxSane runs two cheap regex-based checks against the humanized
+// JS/TS source:
+//
+//   - First arg of every `(test|describe|it)\(` call is a quoted string
+//     literal (single, double, or backtick) or a regex literal.
+//   - Quote character counts (`'`, `"`, ` ` `) are each even — open/close
+//     parity. An odd count means the LLM dropped a quote somewhere.
+//
+// Neither check is a full parser; both catch the LLM-corruption modes
+// actually observed in production. Returns true when the source looks
+// syntactically sane.
+func jsSyntaxSane(b []byte) bool {
+	s := string(b)
+	for _, m := range reTestCallStart.FindAllStringIndex(s, -1) {
+		// m[1] is the index right after the `(`. Skip any whitespace,
+		// then the next char must be a quote or a regex slash.
+		i := m[1]
+		for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+			i++
+		}
+		if i >= len(s) {
+			return false
+		}
+		c := s[i]
+		if c != '\'' && c != '"' && c != '`' && c != '/' {
+			return false
+		}
+	}
+	// Quote-balance: each kind must have an even total count. Doesn't
+	// account for escaped quotes inside strings — but the LLM rewrites
+	// titles and comments, not escape-heavy code, so over-rejection
+	// here is rare in practice and the cost (one extra retry) is low.
+	if strings.Count(s, "'")%2 != 0 {
+		return false
+	}
+	if strings.Count(s, "\"")%2 != 0 {
+		return false
+	}
+	if strings.Count(s, "`")%2 != 0 {
+		return false
+	}
+	// Bare-prose-line check. A statement-position line containing only
+	// words and spaces (no JS punctuation) almost always means the LLM
+	// replaced a real expression with an English description. Real code
+	// lines carry parens/braces/dots/equals/semicolons.
+	for _, l := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" {
+			continue
+		}
+		if reBareProseLine.MatchString(t) {
+			return false
+		}
+	}
+	return true
+}
+
+// reBareProseLine matches a line that looks like a natural-language
+// sentence with no JS punctuation: starts with an uppercase letter,
+// continues with letters / spaces / a stray apostrophe, ends without
+// any of `;,(){}[].=:<>/`.
+var reBareProseLine = regexp.MustCompile(`^[A-Z][a-zA-Z' ]+[a-zA-Z]$`)
+
+// reTestCallStart matches the opening of a test-like function call,
+// capturing the index of the `(` so the caller can inspect what follows.
+var reTestCallStart = regexp.MustCompile(`\b(?:test|describe|it)\s*\(`)
 
 // keywordSignature returns a compact "describe=N,test=M,import=K" string
 // that two files share iff they have the same number of each structural
