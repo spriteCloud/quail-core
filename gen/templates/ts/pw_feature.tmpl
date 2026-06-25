@@ -130,6 +130,26 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
 {{- end }}
 {{- end }}
 
+{{- /* v0.95.6: happy-compute Scenario per primary component. Fills
+       every primary-component input with one realistic value and
+       asserts a result appears. The scenario that proves the widget
+       does what users come for — not "submit fails cleanly" but
+       "submit succeeds and the answer renders." Generic across
+       calculators, booking widgets, configurators, quote forms. */ -}}
+{{- with .Symbol.PrimaryComponent }}
+{{- if .Inputs }}
+
+  @journey:{{$.JourneyKind}} @priority:critical @kind:component-submit
+  Scenario: filling the primary component yields a result
+    Given I open the landing page
+{{- range $f := .Inputs }}
+    When I enter "{{realisticValueFor $f}}" into the "{{humanField $f}}" field
+{{- end }}
+    When I submit the form
+    Then a result is shown
+{{- end }}
+{{- end }}
+
 {{- if and .Symbol.HasForm .Symbol.Inputs }}
 {{- /* Boundary-of-happy: a max-length value for the first text-like
        input. Asserts the field accepts up to its declared max

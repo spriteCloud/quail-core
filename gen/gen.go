@@ -739,6 +739,9 @@ var funcs = template.FuncMap{
 	"paramRowsFor": paramRowsFor,
 	"paramRowVariant": func(r paramRow) string { return r.Variant },
 	"paramRowValue":   func(r paramRow) string { return r.Value },
+	// realisticValueFor picks one median-sensible value per input —
+	// the value baked into the happy-compute Scenario. v0.95.6.
+	"realisticValueFor": realisticValueFor,
 	// urlPath extracts the path component of Symbol.File for the
 	// Feature: title line. Falls back to "/" when the URL is bare /
 	// unparseable so the sidebar never shows an empty fragment.
@@ -1231,7 +1234,7 @@ type paramRow struct {
 // punycode urls, RTL/emoji/control chars in free text, negative /
 // float / boundary numbers).
 func paramRowsFor(i ast.FormInput) []paramRow {
-	switch i.Type {
+	switch inferInputType(i) {
 	case "email":
 		return []paramRow{
 			{"typical", "jane@example.com"},
@@ -1303,6 +1306,20 @@ func paramRowsFor(i ast.FormInput) []paramRow {
 			return nil
 		}
 		return rows
+	case "postcode":
+		// v0.95.6: realistic postcodes across regions so calculators /
+		// quote widgets that key on postcode get values that pass
+		// client-side validation. The probe doesn't know the locale,
+		// so we sample several. Format inferred from name hint, not
+		// the input's `pattern` attr (which we don't capture today).
+		return []paramRow{
+			{"nl", "1011AB"},
+			{"de", "10115"},
+			{"us", "94016"},
+			{"uk", "SW1A 1AA"},
+			{"br", "01310-100"},
+			{"jp", "100-0001"},
+		}
 	case "text", "search", "textarea":
 		return []paramRow{
 			{"short", "sample"},
@@ -1319,6 +1336,97 @@ func paramRowsFor(i ast.FormInput) []paramRow {
 		}
 	}
 	return nil
+}
+
+// inferInputType returns the effective input type for a FormInput.
+// Pass-through when the probe captured a specific HTML5 type;
+// otherwise read the input's name + label + aria + placeholder for
+// substring hints. Drives both paramRowsFor (which Examples rows to
+// emit) and realisticValueFor (the value for the happy-compute
+// scenario). v0.95.6.
+func inferInputType(i ast.FormInput) string {
+	t := strings.ToLower(strings.TrimSpace(i.Type))
+	// Specific HTML5 types pass through.
+	switch t {
+	case "number", "email", "tel", "url", "date", "password",
+		"search", "select", "textarea", "checkbox", "radio",
+		"datetime-local", "time", "month", "week", "color", "range":
+		return t
+	}
+	// Text or empty type → look at the field's identity for a hint.
+	hay := strings.ToLower(i.Name + " " + i.LabelText + " " + i.Aria + " " + i.Placeholder)
+	contains := func(needles ...string) bool {
+		for _, n := range needles {
+			if n != "" && strings.Contains(hay, n) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case contains("income", "salary", "bedrag", "inkomen", "amount",
+		"price", "cost", "loan", "prijs", "huisprijs", "mortgage",
+		"hypotheek", "total", "value", "valor", "montant", "betrag",
+		"count", "quantity", "qty", "age", "year", "leeftijd"):
+		return "number"
+	case contains("email", "e-mail", "e_mail", "correo"):
+		return "email"
+	case contains("phone", "tel", "mobile", "telefoon", "teléfono", "mobil", "celular"):
+		return "tel"
+	case contains("date", "dob", "birthday", "birthdate", "checkin",
+		"checkout", "datum", "fecha", "geboorte"):
+		return "date"
+	case contains("postcode", "postal", "zip", "cep", "codigo_postal",
+		"codigo postal", "plz", "postnumber"):
+		return "postcode"
+	case contains("url", "website", "homepage"):
+		return "url"
+	}
+	// Default to text for empty / unknown, since the text row pool
+	// at least exercises encoding edges without being WRONG (it's
+	// just generic).
+	if t == "" {
+		return "text"
+	}
+	return t
+}
+
+// realisticValueFor returns ONE median-sensible value for the
+// happy-compute Scenario — the asymmetric "fill every input
+// with a value, submit, see a result" scenario. Per-type defaults
+// chosen to pass typical client-side validation on the first try.
+// v0.95.6.
+func realisticValueFor(i ast.FormInput) string {
+	switch inferInputType(i) {
+	case "number":
+		return "50000"
+	case "email":
+		return "jane@example.com"
+	case "tel":
+		return "+15551234567"
+	case "url":
+		return "https://example.com"
+	case "date", "datetime-local":
+		return "2025-06-25"
+	case "time":
+		return "10:00"
+	case "month":
+		return "2025-06"
+	case "postcode":
+		return "1011AB"
+	case "password":
+		return "Passw0rd!"
+	case "select":
+		for _, v := range i.OptionValues {
+			if v = strings.TrimSpace(v); v != "" {
+				return v
+			}
+		}
+		return ""
+	case "search", "textarea", "text":
+		return "sample"
+	}
+	return "sample"
 }
 
 // humanizeIdentifier turns common identifier shapes into Title-cased

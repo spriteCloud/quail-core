@@ -92,6 +92,58 @@ func TestFeatureTemplate_PrimaryComponent_FansOutPerInput(t *testing.T) {
 	if count < 3 {
 		t.Errorf("expected ≥3 @kind:component scenarios for 3 inputs, got %d\nbody:\n%s", count, body)
 	}
+
+	// v0.95.6: ONE happy-compute Scenario per PrimaryComponent. Fills
+	// every input with a realistic value and asserts a result appears.
+	mustContain(t, body, "@priority:critical @kind:component-submit")
+	mustContain(t, body, "Scenario: filling the primary component yields a result")
+	mustContain(t, body, "Then a result is shown")
+}
+
+// v0.95.6: when the primary component holds inputs the probe
+// captured WITHOUT an HTML5 type (the ING flex-component case), the
+// name-hint inference turns them into number rows — not the
+// text-junk row pool. The 3 Outlines must use number-case rows.
+func TestFeatureTemplate_PrimaryComponent_InferredNumberRowsForIncomeFields(t *testing.T) {
+	pc := &ast.PrimaryComponent{
+		Selector: "flex-calc",
+		Inputs: []ast.FormInput{
+			// All three lack an explicit Type but have income-shaped labels.
+			{Name: "applicant", LabelText: "Jouw bruto jaarinkomen"},
+			{Name: "partner", LabelText: "Bruto jaarinkomen partner"},
+			{Name: "monthlyIncome", LabelText: "Bruto maandbedrag"},
+		},
+	}
+	landing := ast.Symbol{
+		Name: "ING", Kind: ast.KindComponent,
+		File: "https://x.test/calc", Language: "ts",
+		PageTitle: "Calc", HasForm: true,
+		Inputs: pc.Inputs, PrimaryComponent: pc,
+	}
+	it := plan.Item{
+		Symbol: landing, Symbols: []ast.Symbol{landing},
+		PageURL: landing.File, Template: plan.TmplPlaywrightFeature,
+		OutPath: "tests/e2e/features/ing.feature", JourneyKind: "exercise",
+	}
+	out, err := Render([]plan.Item{it}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out[0].Content)
+	// Number-row markers — NOT the text-junk row markers.
+	for _, want := range []string{"| zero | 0 |", "| typical | 42 |", "| joint-income | 60000 |"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected number-case row %q in feature output\nbody:\n%s", want, body)
+		}
+	}
+	for _, junk := range []string{"café-niño-ümlaut", "hello 🎉 world 🌍", "rtl-mark"} {
+		if strings.Contains(body, junk) {
+			t.Errorf("text-junk row %q must NOT appear for number-inferred fields", junk)
+		}
+	}
+	// Happy-compute Scenario uses realistic value (50000).
+	mustContain(t, body, `When I enter "50000" into the "Jouw bruto jaarinkomen" field`)
+	mustContain(t, body, `When I enter "50000" into the "Bruto maandbedrag" field`)
 }
 
 // Two inputs sharing a (Name, Type) — common when a calculator
