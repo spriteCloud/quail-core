@@ -1854,22 +1854,50 @@ func itemFromJourney(j mindmap.Journey, sourceURL string, projectLabel string) p
 		}
 		syms = append(syms, s)
 	}
-	// v0.94.1: multi-step journeys (browse/convert with deep terminal)
+	// v0.94.2: multi-step journeys (browse/convert with deep terminal)
 	// render against syms[0] (the landing). Without help, calculator
 	// pages reached by browse never emit the per-input Outlines that
-	// Exercise journeys (single-page) get for free. Promote the first
-	// non-nil PrimaryComponent we find in the chain onto syms[0] so the
-	// template can fan out scenarios anchored to the calculator widget
-	// regardless of journey shape. ponytail: cheap promotion in lieu of
-	// changing the template to render against the terminal Symbol.
+	// Exercise journeys (single-page) get for free. Pick the
+	// terminal-anchored PrimaryComponent when present (the most
+	// relevant for the file's slug), else first-non-nil across all
+	// steps. Diagnostic log surfaces "which symbol carried it" so a
+	// missing fan-out points at the journey-walk rather than the
+	// template. ponytail: cheap promotion + log; the journey-builder
+	// canonicalising Step.Page via Map.Pages is the deeper followup.
 	if syms[0].PrimaryComponent == nil {
-		for _, s := range syms[1:] {
-			if s.PrimaryComponent != nil {
-				syms[0].PrimaryComponent = s.PrimaryComponent
+		terminalURL := j.Steps[len(j.Steps)-1].Page.URL
+		var promoted *ast.PrimaryComponent
+		for _, s := range syms {
+			if s.PrimaryComponent != nil && s.File == terminalURL {
+				promoted = s.PrimaryComponent
 				break
 			}
 		}
+		if promoted == nil {
+			for _, s := range syms {
+				if s.PrimaryComponent != nil {
+					promoted = s.PrimaryComponent
+					break
+				}
+			}
+		}
+		if promoted != nil {
+			syms[0].PrimaryComponent = promoted
+		}
 	}
+	stepInfo := make([]string, 0, len(j.Steps))
+	for _, st := range j.Steps {
+		has := "nil"
+		if st.Page.PrimaryComponent != nil {
+			has = fmt.Sprintf("%d-inputs(%s)", len(st.Page.PrimaryComponent.Inputs), st.Page.PrimaryComponent.Selector)
+		}
+		stepInfo = append(stepInfo, st.Page.URL+":"+has)
+	}
+	log.Debug("itemFromJourney chain",
+		"kind", string(j.Kind),
+		"steps", strings.Join(stepInfo, " → "),
+		"sym0_has_pc", syms[0].PrimaryComponent != nil,
+	)
 	stem := outPathStemForJourney(j)
 	_ = sourceURL
 	return plan.Item{
