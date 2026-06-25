@@ -36,7 +36,7 @@ func TestFeatureTemplate_AppendsLLMComposedScenarios(t *testing.T) {
 	}
 	body := string(out[0].Content)
 	// Deterministic part still renders.
-	mustContain(t, body, "Feature: X — explore journey")
+	mustContain(t, body, "Feature: X — explore · /")
 	mustContain(t, body, "@journey:explore @priority:nice-to-have @smoke")
 	// LLM block renders below.
 	mustContain(t, body, "LLM-composed scenarios (model: qwen3-coder-next:latest)")

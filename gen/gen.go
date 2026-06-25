@@ -739,6 +739,16 @@ var funcs = template.FuncMap{
 	"paramRowsFor": paramRowsFor,
 	"paramRowVariant": func(r paramRow) string { return r.Variant },
 	"paramRowValue":   func(r paramRow) string { return r.Value },
+	// urlPath extracts the path component of Symbol.File for the
+	// Feature: title line. Falls back to "/" when the URL is bare /
+	// unparseable so the sidebar never shows an empty fragment.
+	// v0.95.
+	"urlPath": func(s ast.Symbol) string {
+		if u, err := url.Parse(s.File); err == nil && u.Path != "" {
+			return u.Path
+		}
+		return "/"
+	},
 	// suiteHasAuthJourney reports whether the suite includes an
 	// authenticate journey. Used to gate v0.38 @state:logged-in /
 	// @state:anonymous variants — there's no point emitting them

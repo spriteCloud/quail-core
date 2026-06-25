@@ -30,7 +30,7 @@ func TestFeatureTemplate_EmitsTaggedScenario(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(out[0].Content)
-	mustContain(t, body, "Feature: X — convert journey")
+	mustContain(t, body, "Feature: X — convert · /")
 	mustContain(t, body, "@journey:convert @priority:critical @smoke")
 	mustContain(t, body, "Scenario: convert journey reaches its terminal page")
 	mustContain(t, body, "Given I open the landing page")
@@ -66,6 +66,39 @@ func TestFeatureTemplate_ChainedJourneyEmitsWhenSteps(t *testing.T) {
 	mustContain(t, body, "@journey:browse @priority:standard @smoke")
 	mustContain(t, body, `When I click the link to "/blog"`)
 	mustContain(t, body, `And the page title contains "Blog"`)
+}
+
+// v0.95: the Feature: title carries the URL path so the platform
+// sidebar can distinguish "browse · /particulier" from
+// "browse · /zakelijk" at a glance instead of rendering ten rows of
+// identical "X — browse journey" labels.
+func TestFeatureTemplate_TitleIncludesURLPath(t *testing.T) {
+	landing := ast.Symbol{
+		Name: "test3", Kind: ast.KindComponent,
+		File: "https://www.example.com/foo/bar", Language: "ts",
+		PageTitle: "Foo bar page",
+	}
+	it := plan.Item{
+		Symbol:      landing,
+		Symbols:     []ast.Symbol{landing},
+		PageURL:     landing.File,
+		Template:    plan.TmplPlaywrightFeature,
+		OutPath:     "tests/e2e/features/x.feature",
+		JourneyKind: "browse",
+	}
+	out, err := Render([]plan.Item{it}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out[0].Content)
+	want := "Feature: test3 — browse · /foo/bar"
+	if !strings.Contains(body, want) {
+		t.Errorf("expected title %q, got body:\n%s", want, body)
+	}
+	// And the redundant " journey" suffix must be gone.
+	if strings.Contains(body, "browse journey\n") {
+		t.Errorf("Feature title should drop the redundant ' journey' suffix, got:\n%s", body)
+	}
 }
 
 func TestStepDefsBDDTemplate_BindsToStepsAPI(t *testing.T) {

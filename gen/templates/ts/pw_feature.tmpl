@@ -11,7 +11,7 @@
 #   npx playwright test --grep @journey:{{.JourneyKind}}
 #   npx playwright test --grep @smoke
 
-Feature: {{.Symbol.Name}} — {{.JourneyKind}} journey
+Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
   As a visitor of {{.PageURL}}
   I want to complete the {{.JourneyKind}} flow
   So that the page delivers on its user goal
