@@ -859,11 +859,37 @@ func enginesFor(mode EngineMode) []EngineMode {
 func runBrowserCascade(ctx context.Context, u string, engines []EngineMode, stealth bool, opts mindmap.Options) (*mindmap.Map, []error, bool) {
 	var allErrs []error
 	allUnavailable := true
+	// Remember the best partial result so we can fall back to it if
+	// every later engine also gets WAF-blocked. "Best" = highest
+	// page count.
+	var bestMap *mindmap.Map
+	var bestEng EngineMode
 	for i, eng := range engines {
 		m, errs := browserCrawler(ctx, u, eng, stealth, opts)
 		allErrs = append(allErrs, errs...)
+		// v0.95.5: WAF-block detection. ERR_LIKELY_WAF_BLOCK means the
+		// engine got fingerprint-rejected and probably returned a
+		// shallow set before getting cut off. Try the next engine
+		// rather than ship the partial.
+		wafBlocked := false
+		for _, e := range errs {
+			if errors.Is(e, ErrLikelyWAFBlock) {
+				wafBlocked = true
+				break
+			}
+		}
 		if m != nil && len(m.Pages) > 0 {
-			return m, allErrs, false
+			if !wafBlocked {
+				rememberWinningEngine(eng)
+				return m, allErrs, false
+			}
+			// Stash the partial — better than nothing if every
+			// remaining engine is also blocked or unavailable.
+			if bestMap == nil || len(m.Pages) > len(bestMap.Pages) {
+				bestMap = m
+				bestEng = eng
+			}
+			log.Warn("browser probe: WAF-block markers detected; cascading", "engine", string(eng), "pages_seen", len(m.Pages))
 		}
 		engineUnavailable := false
 		for _, e := range errs {
@@ -880,7 +906,26 @@ func runBrowserCascade(ctx context.Context, u string, engines []EngineMode, stea
 			log.Info("browser probe: cascading to next engine", "from", string(eng), "next", string(engines[i+1]))
 		}
 	}
+	if bestMap != nil {
+		rememberWinningEngine(bestEng)
+		return bestMap, allErrs, false
+	}
 	return nil, allErrs, allUnavailable
+}
+
+// rememberWinningEngine sets QUAIL_BROWSERS for the in-process
+// generation step so the rendered playwright.config.ts defaults to
+// whichever engine cleared the cascade. The user can still override
+// with an explicit env var. v0.95.5.
+func rememberWinningEngine(eng EngineMode) {
+	if eng == "" || eng == EngineAuto {
+		return
+	}
+	if os.Getenv("QUAIL_BROWSERS") != "" {
+		return
+	}
+	_ = os.Setenv("QUAIL_BROWSERS", string(eng))
+	log.Info("browser probe: defaulting QUAIL_BROWSERS for generated config", "engine", string(eng))
 }
 
 // identifyAndFilterJourneys is the journey-discovery + prompt-filter

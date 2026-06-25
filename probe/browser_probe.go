@@ -197,10 +197,52 @@ func runBrowserCrawl(ctx context.Context, origin string, engine EngineMode, stea
 	}
 
 	var errs []error
+	// v0.95.5: scan script-level errors for WAF/TLS-fingerprint
+	// rejection markers. When present, surface as a Go error so the
+	// engine cascade can re-try with firefox/webkit even though the
+	// chromium pass technically returned >0 pages. Triggers: HTTP/2
+	// protocol error (Akamai-class drop), net::ERR_TUNNEL_CONNECTION_FAILED,
+	// NS_ERROR_NET_RESET (Firefox equivalent), and explicit 403/503
+	// status markers if surfaced as pageerrors.
+	wafBlocked := false
 	for _, e := range res.Errors {
 		log.Warn("browser probe", "msg", e)
+		if isWAFMarker(e) {
+			wafBlocked = true
+		}
+	}
+	if wafBlocked {
+		errs = append(errs, ErrLikelyWAFBlock)
 	}
 	return m, errs
+}
+
+// ErrLikelyWAFBlock is a sentinel surfaced by runBrowserCrawl when
+// the script-level errors look like a TLS/HTTP2-fingerprint rejection
+// from a WAF (Akamai, Imperva, etc.). runBrowserCascade treats this
+// as "escalate to next engine even if some pages came back," because
+// chromium often gets a shallow handful of pages before the WAF
+// catches on. v0.95.5.
+var ErrLikelyWAFBlock = errors.New("browser probe: likely WAF / TLS-fingerprint block")
+
+// wafMarkers lists the substrings we treat as evidence the current
+// engine got fingerprint-rejected. Keep this list tight — false
+// positives waste a full cascade hop.
+var wafMarkers = []string{
+	"ERR_HTTP2_PROTOCOL_ERROR",
+	"ERR_TUNNEL_CONNECTION_FAILED",
+	"NS_ERROR_NET_RESET",
+	"ERR_QUIC_PROTOCOL_ERROR",
+	"ERR_SSL_PROTOCOL_ERROR",
+}
+
+func isWAFMarker(s string) bool {
+	for _, m := range wafMarkers {
+		if strings.Contains(s, m) {
+			return true
+		}
+	}
+	return false
 }
 
 // browserPageToMindmap converts the JSON-emitted page into the mindmap.Page
