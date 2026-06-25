@@ -160,6 +160,69 @@ Then('no result is shown', async ({ page }) => {
   }
 })
 
+// v0.10.13: calculator-relational step-defs. The pair captures the
+// current visible result text into a page-scoped state, then asserts
+// the result text differs after refilling + resubmitting. Catches
+// stale-result-widget regressions that "a result is shown" can't see.
+
+const RESULT_LOCATORS = [
+  '[role="status"]',
+  '[aria-live="polite"]',
+  '[aria-live="assertive"]',
+  '[data-result]',
+  '[data-test-result]',
+  '[data-testid*="result" i]',
+  'output',
+]
+
+When('I capture the current result', async ({ page }) => {
+  for (const sel of RESULT_LOCATORS) {
+    const loc = page.locator(sel).first()
+    if ((await loc.count()) > 0) {
+      const text = ((await loc.textContent()) ?? '').trim()
+      ;(page as any).__capturedResult = text
+      ;(page as any).__capturedResultSelector = sel
+      return
+    }
+  }
+  // Fallback: capture currency-shaped text anywhere on the page.
+  const cur = page.locator('text=/[€$£¥]\\s?\\d/').first()
+  if ((await cur.count()) > 0) {
+    const text = ((await cur.textContent()) ?? '').trim()
+    ;(page as any).__capturedResult = text
+    ;(page as any).__capturedResultSelector = 'text=currency'
+    return
+  }
+  ;(page as any).__capturedResult = null
+  ;(page as any).__capturedResultSelector = null
+})
+
+Then('the result has changed', async ({ page }) => {
+  const before = (page as any).__capturedResult as string | null
+  const sel = (page as any).__capturedResultSelector as string | null
+  if (before == null || sel == null) {
+    // No result was captured the first time around — likely the
+    // first submit didn't render a result at all. Treat as
+    // inconclusive rather than false-fail: assert the page is at
+    // least still alive. The generic component-submit Scenario will
+    // catch the "result never appears" case independently.
+    await expect(page.locator('body')).toBeVisible()
+    return
+  }
+  let after: string | null = null
+  if (sel === 'text=currency') {
+    const cur = page.locator('text=/[€$£¥]\\s?\\d/').first()
+    if ((await cur.count()) > 0) {
+      after = ((await cur.textContent()) ?? '').trim()
+    }
+  } else {
+    const loc = page.locator(sel).first()
+    await expect(loc).toBeVisible({ timeout: 5000 })
+    after = ((await loc.textContent()) ?? '').trim()
+  }
+  expect(after, 'expected the result panel to re-render after refilling an input').not.toBe(before)
+})
+
 Then('the page does not crash', async ({ page }) => {
   // The page is still alive: body visible, no generic error overlay.
   // Cheap assertion that distinguishes "this scenario was bad input

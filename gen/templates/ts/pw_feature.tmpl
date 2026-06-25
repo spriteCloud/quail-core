@@ -130,14 +130,27 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
 {{- end }}
 {{- end }}
 
-{{- /* v0.95.6: happy-compute Scenario per primary component. Fills
-       every primary-component input with one realistic value and
-       asserts a result appears. The scenario that proves the widget
-       does what users come for — not "submit fails cleanly" but
-       "submit succeeds and the answer renders." Generic across
-       calculators, booking widgets, configurators, quote forms. */ -}}
+{{- /* v0.10.13: intent-aware dispatch for the primary-component
+       block. When the LLM classifier tagged this page as a known
+       intent with high confidence, route to the intent-specific
+       sub-template; otherwise the generic 5-scenario suite (lifted
+       from v0.10.12) fires unchanged. */ -}}
 {{- with .Symbol.PrimaryComponent }}
 {{- if .Inputs }}
+{{- if and (eq $.Symbol.PageIntent.Intent "calculator") (ge $.Symbol.PageIntent.Confidence 0.7) }}
+{{ template "component_calculator" $ }}
+{{- else }}
+{{ template "component_generic" $ }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* generic — today's 5 scenarios (happy-compute + empty + invalid +
+       partial + boundary). Fires for every PrimaryComponent with no
+       intent classification, or with intent confidence < 0.7. This is
+       a verbatim lift of the v0.10.12 block — no logic change. */ -}}
+{{- define "component_generic" -}}
+{{- with .Symbol.PrimaryComponent }}
 
   @journey:{{$.JourneyKind}} @priority:critical @kind:component-submit
   Scenario: filling the primary component yields a result
@@ -147,12 +160,6 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
 {{- end }}
     When I submit the form
     Then a result is shown
-
-  {{- /* v0.10.12: sad-path siblings to the happy-compute Scenario.
-         Four cheap scenarios that close the obvious gaps in calculator
-         coverage — none of them assert the result *value* (still the
-         hard problem) but each one is a real, deterministic check
-         backed by tolerant step-defs. */}}
 
   @journey:{{$.JourneyKind}} @priority:critical @kind:component-empty
   Scenario: empty submit on the primary component is rejected
@@ -193,6 +200,31 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
       | max-realistic | 500000 |
       | negative      | -1     |
 {{- end }}
+{{- end }}
+{{- end }}
+
+{{- /* calculator — the v0.10.13 intent specialization. Adds the
+       generic 5 PLUS one RELATIONAL scenario: fill, compute, capture
+       result, refill one input with a different value, resubmit,
+       assert the result CHANGED. Catches the "stale result widget"
+       regression that the generic happy-compute scenario can't see. */ -}}
+{{- define "component_calculator" -}}
+{{ template "component_generic" . }}
+{{- with .Symbol.PrimaryComponent }}
+{{- $first := index .Inputs 0 }}
+
+  @journey:{{$.JourneyKind}} @priority:critical @kind:calculator-relational
+  Scenario: the result reacts when an input value changes
+    Given I open the landing page
+{{- range $f := .Inputs }}
+    When I enter "{{realisticValueFor $f}}" into the "{{humanField $f}}" field
+{{- end }}
+    When I submit the form
+    Then a result is shown
+    When I capture the current result
+    When I enter "{{realisticAltValueFor $first}}" into the "{{humanField $first}}" field
+    When I submit the form
+    Then the result has changed
 {{- end }}
 {{- end }}
 

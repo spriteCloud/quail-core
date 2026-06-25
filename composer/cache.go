@@ -102,6 +102,55 @@ func (c Cache) Put(key string, scenarios []ExtraScenario) error {
 	return os.Rename(tmp, filepath.Join(c.Dir, key+".json"))
 }
 
+// IntentCacheKey is the cache key for a (model, PageInput) classifier
+// call. Distinct namespace from CacheKey via a prefix byte so
+// scenarios and intents never collide on disk.
+func IntentCacheKey(model string, p PageInput) string {
+	h := sha256.New()
+	h.Write([]byte(cacheSchemaVersion))
+	h.Write([]byte("intent\x00"))
+	h.Write([]byte(model))
+	h.Write([]byte{0})
+	h.Write([]byte(IntentFingerprint(p)))
+	return "intent-" + hex.EncodeToString(h.Sum(nil))
+}
+
+// GetIntent retrieves a previously-cached classification.
+func (c Cache) GetIntent(key string) (PageIntent, bool) {
+	if c.Dir == "" || key == "" {
+		return PageIntent{}, false
+	}
+	body, err := os.ReadFile(filepath.Join(c.Dir, key+".json"))
+	if err != nil {
+		return PageIntent{}, false
+	}
+	var out PageIntent
+	if err := json.Unmarshal(body, &out); err != nil {
+		return PageIntent{}, false
+	}
+	return out, true
+}
+
+// PutIntent writes a classification to the cache. Errors are returned
+// but non-fatal.
+func (c Cache) PutIntent(key string, intent PageIntent) error {
+	if c.Dir == "" {
+		return errors.New("composer: cache disabled (empty Dir)")
+	}
+	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
+		return err
+	}
+	body, err := json.Marshal(intent)
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(c.Dir, key+".json.tmp")
+	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(c.Dir, key+".json"))
+}
+
 // ResolveCacheDir picks the cache directory. Precedence:
 //   1. Explicit dir argument (e.g. from --llm-cache flag)
 //   2. QUAIL_LLM_CACHE env var

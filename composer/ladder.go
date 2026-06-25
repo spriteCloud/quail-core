@@ -73,6 +73,38 @@ func ProposeWithLadderAndCache(ctx context.Context, ladder Ladder, j Journey, n 
 	return nil, "", lastErr
 }
 
+// ClassifyWithLadder walks the model ladder for the page-intent
+// classifier. Same fallback semantics as ProposeWithLadder: first
+// rung that returns a non-zero parseable intent wins.
+func ClassifyWithLadder(ctx context.Context, ladder Ladder, p PageInput) (PageIntent, string, error) {
+	return ClassifyWithLadderAndCache(ctx, ladder, p, Cache{})
+}
+
+// ClassifyWithLadderAndCache is the cache-aware variant. Cache key is
+// derived from the PageInput fingerprint, NOT the URL — two pages
+// with identical title/H1/meta produce the same intent regardless of
+// URL, saving classifier calls across /us/ vs /uk/ etc.
+func ClassifyWithLadderAndCache(ctx context.Context, ladder Ladder, p PageInput, cache Cache) (PageIntent, string, error) {
+	if ladder.Empty() {
+		return PageIntent{}, "", nil
+	}
+	primary := ladder.Rungs[0]
+	primaryKey := IntentCacheKey(primary.Model, p)
+	if hit, ok := cache.GetIntent(primaryKey); ok && hit.Intent != "" {
+		return hit, primary.Model, nil
+	}
+	var lastErr error
+	for _, rung := range ladder.Rungs {
+		intent, err := ClassifyPageIntent(ctx, rung.Client, p)
+		if err == nil && intent.Intent != "" {
+			_ = cache.PutIntent(primaryKey, intent)
+			return intent, rung.Model, nil
+		}
+		lastErr = err
+	}
+	return PageIntent{}, "", lastErr
+}
+
 // tagWithModel appends `@model:<id>` to each scenario's Tags so
 // consumers can grep by what produced what. Slashes / colons get
 // sanitized into a Gherkin-safe tag.

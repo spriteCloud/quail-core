@@ -98,6 +98,25 @@ type Symbol struct {
 	// (v0.94). Nil for non-page symbols or pages with no actionable
 	// primary widget.
 	PrimaryComponent *PrimaryComponent
+	// PageIntent carries the LLM-derived domain tag for this page —
+	// "calculator", "booking", "checkout", "signup", "marketing", etc.
+	// Populated by composer.ClassifyPageIntent when --llm is set;
+	// zero-valued when the LLM is unavailable. Drives intent-specific
+	// template branches in pw_feature.tmpl (v0.10.13). Confidence
+	// threshold of 0.7 gates specialization; below that the generic
+	// component scenarios fire as before.
+	PageIntent PageIntent
+}
+
+// PageIntent is the LLM-derived domain classification for a probed
+// page. Zero value means "unknown / classifier didn't run" — every
+// downstream consumer must treat that as "fall back to generic
+// behavior", never as an error.
+type PageIntent struct {
+	Intent        string   // "calculator" | "booking" | "checkout" | "signup" | "search" | "quote" | "configurator" | "marketing" | "content" | ""
+	Confidence    float64  // 0..1; below 0.7 → templates fall back to generic
+	Vertical      string   // "mortgage" | "insurance" | "travel" | "ecommerce" | "saas" | "gov" | ""
+	KeyAssertions []string // free-form domain assertions the LLM thought were important; logged for Phase 2 design, not (yet) baked into templates
 }
 
 // PrimaryComponent is the AST mirror of mindmap.ComponentRef — same

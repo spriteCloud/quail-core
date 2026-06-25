@@ -742,6 +742,9 @@ var funcs = template.FuncMap{
 	// realisticValueFor picks one median-sensible value per input —
 	// the value baked into the happy-compute Scenario. v0.95.6.
 	"realisticValueFor": realisticValueFor,
+	// realisticAltValueFor returns a clearly-different second value
+	// for the calculator-relational Scenario. v0.10.13.
+	"realisticAltValueFor": realisticAltValueFor,
 	// allInputsAreNumeric gates the boundary-value Scenario Outline on
 	// the primary component — only safe to fire when every input takes
 	// a number (otherwise `| zero | 0 |` lands in a date / email
@@ -1455,6 +1458,46 @@ func realisticValueFor(i ast.FormInput) string {
 		return "sample"
 	}
 	return "sample"
+}
+
+// realisticAltValueFor returns a clearly-different second realistic
+// value for the same input — used by the calculator-relational
+// Scenario to refill an input and assert the result reacts. v0.10.13.
+// Must differ from realisticValueFor for the same input or the
+// "result has changed" assertion is vacuous.
+func realisticAltValueFor(i ast.FormInput) string {
+	switch inferInputType(i) {
+	case "number":
+		return "100000" // 2× realisticValueFor's 50000
+	case "email":
+		return "alice@example.org"
+	case "tel":
+		return "+15559876543"
+	case "url":
+		return "https://example.org"
+	case "date", "datetime-local":
+		return "2025-12-25"
+	case "time":
+		return "16:00"
+	case "month":
+		return "2025-12"
+	case "postcode":
+		return "2024BB"
+	case "password":
+		return "Passw0rd2!"
+	case "select":
+		// Prefer the LAST captured option to maximise the chance of a
+		// different value than realisticValueFor (which picks first).
+		for j := len(i.OptionValues) - 1; j >= 0; j-- {
+			if v := strings.TrimSpace(i.OptionValues[j]); v != "" {
+				return v
+			}
+		}
+		return ""
+	case "search", "textarea", "text":
+		return "other sample"
+	}
+	return "other sample"
 }
 
 // humanizeIdentifier turns common identifier shapes into Title-cased
