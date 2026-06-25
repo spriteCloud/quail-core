@@ -40,12 +40,12 @@ When(/^I click the link to "([^"]+)"$/, async ({ page }, href: string) => {
     // exercised instead of the whole spec hard-failing on the menu.
     await page.goto(href)
   }
-  await expect(page).toHaveURL(new RegExp(escapeRegex(href) + '$'))
+  await expect(page).toHaveURL(urlAssertionRegex(href))
 })
 
 When(/^I navigate directly to "([^"]+)"$/, async ({ page }, href: string) => {
   await page.goto(href)
-  await expect(page).toHaveURL(new RegExp(escapeRegex(href) + '$'))
+  await expect(page).toHaveURL(urlAssertionRegex(href))
 })
 
 When(/^I enter "([^"]+)" into the "([^"]+)" field$/, async ({ page }, value: string, field: string) => {
@@ -279,4 +279,16 @@ Then(/^the URL has query parameter "([^"]+)" equal to "([^"]+)"$/, async ({ page
 
 function escapeRegex(s: string): string {
   return s.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&')
+}
+
+// v0.10.11: tolerant URL assertion. Many sites (ING, every Adobe-AEM
+// install, most marketing CMSes) normalise URLs by stripping the
+// trailing slash on `/foo/` → `/foo`, or vice-versa. The generated
+// `When I navigate directly to "/foo/"` step would false-fail on a
+// strict `escapeRegex(href) + '$'` anchor. We tolerate the slash on
+// both ends — the navigation succeeded, the path matches, that's what
+// the assertion actually means.
+function urlAssertionRegex(href: string): RegExp {
+  const trimmed = href.replace(/\/+$/, '')
+  return new RegExp(escapeRegex(trimmed) + '/?$')
 }

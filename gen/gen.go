@@ -805,15 +805,28 @@ var funcs = template.FuncMap{
 	// pageIsListLike reports whether the symbol's tags / content
 	// suggest a list / search shape that warrants an empty-state test.
 	"pageIsListLike": func(s ast.Symbol) bool {
-		// Heuristic: any content anchor with tag "h2" + page has
-		// links — implies a content list. Conservative.
+		// v0.10.11: previous heuristic (h2>=2 && links>0) false-fired
+		// on section/marketing pages (ING /zakelijk, every Adobe-AEM
+		// landing) — many h2s + many links but no <li>-shaped
+		// list to assert against. Tightened to: URL path hint OR
+		// >=6 h2s + >=6 links.
+		u := strings.ToLower(s.File)
+		for _, hint := range []string{
+			"/blog", "/news", "/article", "/articles",
+			"/search", "/results", "/feed", "/listing",
+			"/posts", "/products", "/catalog", "/category",
+		} {
+			if strings.Contains(u, hint) {
+				return true
+			}
+		}
 		h2s := 0
 		for _, c := range s.Contents {
 			if c.Tag == "h2" {
 				h2s++
 			}
 		}
-		return h2s >= 2 && len(s.Links) > 0
+		return h2s >= 6 && len(s.Links) >= 6
 	},
 	// dtoSampleValuePy is the Python sibling of dtoSampleValue.
 	"dtoSampleValuePy": func(t string) string {
