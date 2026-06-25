@@ -260,6 +260,67 @@ func setOf(parts []string) map[string]bool {
 	return m
 }
 
+// KindInfo describes one user-selectable Kind for UI rendering.
+// The kind names are the same strings accepted by FilterByKinds /
+// --kinds / QUAIL_KINDS — no translation layer.
+//
+// v0.99.2.
+type KindInfo struct {
+	Kind        string `json:"kind"`
+	Category    string `json:"category"`
+	Description string `json:"description"`
+}
+
+// KindRegistry returns the user-selectable kinds in a stable order,
+// grouped by category. Always-keep kinds (scaffold, docs) are
+// excluded — they're structural, not user-facing test families.
+// The list is the single source of truth for any UI that wants
+// to render scenario-kind pickers without drifting from
+// FilterByKinds.
+//
+// Drift is guarded by TestKindRegistry_CoversEveryKindConstant.
+//
+// v0.99.2.
+func KindRegistry() []KindInfo {
+	return []KindInfo{
+		{KindJourney, "Journey", "End-to-end user flows: landing → action → outcome."},
+		{KindA11y, "Accessibility", "WCAG checks, landmarks, keyboard nav, zoom, prefers-* media."},
+		{KindPerf, "Performance", "Page-load, hydration, and Core Web Vitals budgets."},
+		{KindVisual, "Visual", "Screenshot diffs and visual state matrices."},
+		{KindSecurity, "Security", "Header hygiene, mixed content, CSP, basic injection probes."},
+		{KindContract, "Contract & Data", "Schema conformance (OpenAPI/Proto/dbt/Pandera/GE)."},
+		{KindHealth, "Health", "/health, /ready, /status liveness probes."},
+		{KindObservability, "Observability", "Trace/log/metric propagation across the request path."},
+		{KindI18n, "Internationalization", "Locale negotiation, RTL, character-set edges."},
+		{KindLocale, "Internationalization", "Locale switch flows and persistence."},
+		{KindNetwork, "Network", "Offline, slow-3G, packet-loss resilience."},
+		{KindStorage, "Storage", "Cookie/localStorage/sessionStorage round-trips."},
+		{KindPrint, "Print", "Print stylesheet and paged-media rendering."},
+		{KindMobile, "Mobile & Responsive", "Mobile-emulation viewport and gesture flows."},
+		{KindResponsive, "Mobile & Responsive", "Breakpoint behaviour across viewport sizes."},
+		{KindTouch, "Mobile & Responsive", "Touch gestures, drag-and-drop, swipe."},
+		{KindRace, "Race & Concurrency", "Double-submit, concurrent edits, optimistic-update conflicts."},
+		{KindFuzz, "Fuzz", "Property-based and random-input exploration."},
+		{KindWebhook, "Edge Cases", "Webhook delivery, retry, idempotency."},
+		{KindGraphQL, "Edge Cases", "GraphQL query/mutation/subscription paths."},
+		{KindAuthExpiry, "Edge Cases", "Token expiry, refresh, session invalidation."},
+		{KindHistoryDepth, "Edge Cases", "Browser back/forward across deep navigation."},
+		{KindClipboard, "Edge Cases", "Copy/paste and Clipboard API interactions."},
+		{KindIframe, "Edge Cases", "Cross-frame messaging and embedded content."},
+		{KindDateEdges, "Edge Cases", "DST, leap-day, timezone boundary inputs."},
+		{KindFileUpload, "Edge Cases", "Single/multi-file upload, size, and MIME edges."},
+		{KindDeepLink, "Edge Cases", "Deep-link routing and parameter preservation."},
+		{KindHTTPChains, "Edge Cases", "Redirect/conditional/cache HTTP chains."},
+		{KindAPI, "API & Integration", "REST API contract, idempotency, pagination, versioning."},
+		{KindIntegration, "API & Integration", "DB / broker / cache / storage / auth integration stubs."},
+		{KindGRPC, "API & Integration", "gRPC unary, server/client/bidi streaming."},
+		{KindCompat, "API & Integration", "Backwards-compat checks (OpenAPI/Proto/AsyncAPI)."},
+		{KindUnit, "Unit", "Language-native unit tests (Jest/Pytest/Go/JUnit)."},
+		{KindPWA, "PWA", "Manifest, service worker, install-prompt flows."},
+		{KindJobs, "Background Jobs", "Scheduled jobs, event handlers, email templates."},
+	}
+}
+
 // ParseKinds splits a comma-separated kind list into a normalised
 // slice. Empty input returns nil so callers can distinguish "no
 // filter" from "filter to nothing".

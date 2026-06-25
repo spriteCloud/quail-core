@@ -252,6 +252,61 @@ func TestFilterByKinds_EmptyAllowAndDenyPassesAll(t *testing.T) {
 	}
 }
 
+// TestKindRegistry_CoversEveryKindConstant parses kinds.go and asserts
+// every declared Kind* constant (excluding the always-keep structural
+// kinds: scaffold, docs, sentinel) appears in KindRegistry. Adding a
+// new Kind* without registering it fails the test loudly so the UI
+// pickers stay in sync with the filter.
+//
+// v0.99.2.
+func TestKindRegistry_CoversEveryKindConstant(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "kinds.go", nil, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parse kinds.go: %v", err)
+	}
+	skip := map[string]bool{"KindScaffold": true, "KindDocs": true, "KindSentinel": true}
+	registered := map[string]bool{}
+	for _, info := range KindRegistry() {
+		registered[info.Kind] = true
+		if info.Category == "" || info.Description == "" {
+			t.Errorf("KindRegistry entry %q missing category or description", info.Kind)
+		}
+	}
+	var missing []string
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if !strings.HasPrefix(name.Name, "Kind") || skip[name.Name] {
+					continue
+				}
+				if i >= len(vs.Values) {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok {
+					continue
+				}
+				val := strings.Trim(lit.Value, "\"")
+				if !registered[val] {
+					missing = append(missing, name.Name+"("+val+")")
+				}
+			}
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("KindRegistry missing entries for: %v", missing)
+	}
+}
+
 func TestParseKinds(t *testing.T) {
 	cases := []struct {
 		in   string
