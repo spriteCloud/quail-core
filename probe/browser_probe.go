@@ -88,6 +88,12 @@ type browserInput struct {
 	Required     bool     `json:"required"`
 	Visible      bool     `json:"visible"`
 	OptionValues []string `json:"optionValues"`
+	// LabelText is the visible <label for="id"> text (or
+	// aria-labelledby referent / ancestor <label>) resolved by the
+	// browser script. Drives humanField in the gen templates so the
+	// scenario surface reads "Bruto jaarinkomen" instead of the
+	// `name=` attribute slug. v0.95.1.
+	LabelText string `json:"labelText"`
 }
 
 type browserInteract struct {
@@ -254,6 +260,7 @@ func browserPageToMindmap(bp browserPage) *mindmap.Page {
 			Placeholder:  in.Placeholder,
 			Required:     in.Required,
 			OptionValues: in.OptionValues,
+			LabelText:    in.LabelText,
 		})
 	}
 
@@ -285,6 +292,7 @@ func browserPageToMindmap(bp browserPage) *mindmap.Page {
 				Placeholder:  in.Placeholder,
 				Required:     in.Required,
 				OptionValues: in.OptionValues,
+				LabelText:    in.LabelText,
 			})
 		}
 		p.PrimaryComponent = pc

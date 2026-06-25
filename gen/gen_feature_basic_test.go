@@ -101,6 +101,75 @@ func TestFeatureTemplate_TitleIncludesURLPath(t *testing.T) {
 	}
 }
 
+// v0.95.1: when a probed input carries a visible <label> text, the
+// Outline / step text reads the label — not the `name` slug. Tag
+// stays on Name for grep-ability.
+func TestFeatureTemplate_HumanField_PrefersLabelText(t *testing.T) {
+	landing := ast.Symbol{
+		Name: "X", Kind: ast.KindComponent,
+		File: "https://x.test/calc", Language: "ts",
+		PageTitle: "Calc",
+		HasForm:   true,
+		Inputs: []ast.FormInput{
+			{Name: "monthlyIncome", Type: "number", LabelText: "Monthly income"},
+		},
+		PrimaryComponent: &ast.PrimaryComponent{
+			Selector: "calc",
+			Inputs: []ast.FormInput{
+				{Name: "monthlyIncome", Type: "number", LabelText: "Monthly income"},
+			},
+		},
+	}
+	it := plan.Item{
+		Symbol: landing, Symbols: []ast.Symbol{landing},
+		PageURL: landing.File, Template: plan.TmplPlaywrightFeature,
+		OutPath: "tests/e2e/features/calc.feature", JourneyKind: "exercise",
+	}
+	out, err := Render([]plan.Item{it}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out[0].Content)
+	mustContain(t, body, `Scenario Outline: fill the "Monthly income" field with <example>`)
+	mustContain(t, body, `When I enter "<example>" into the "Monthly income" field`)
+	mustContain(t, body, `@field:monthlyIncome`)
+	if strings.Contains(body, `"monthlyIncome" field`) {
+		t.Errorf("expected step text to use LabelText, not Name slug:\n%s", body)
+	}
+}
+
+// When LabelText / Aria / Placeholder are all empty, fall back to
+// Name so step-def `[name="..."]` resolution still works. No
+// regression on pages without labels.
+func TestFeatureTemplate_HumanField_FallsBackToName(t *testing.T) {
+	landing := ast.Symbol{
+		Name: "X", Kind: ast.KindComponent,
+		File: "https://x.test/calc", Language: "ts",
+		PageTitle: "Calc",
+		HasForm:   true,
+		Inputs: []ast.FormInput{
+			{Name: "monthlyIncome", Type: "number"},
+		},
+		PrimaryComponent: &ast.PrimaryComponent{
+			Selector: "calc",
+			Inputs: []ast.FormInput{
+				{Name: "monthlyIncome", Type: "number"},
+			},
+		},
+	}
+	it := plan.Item{
+		Symbol: landing, Symbols: []ast.Symbol{landing},
+		PageURL: landing.File, Template: plan.TmplPlaywrightFeature,
+		OutPath: "tests/e2e/features/calc.feature", JourneyKind: "exercise",
+	}
+	out, err := Render([]plan.Item{it}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out[0].Content)
+	mustContain(t, body, `Scenario Outline: fill the "monthlyIncome" field with <example>`)
+}
+
 func TestStepDefsBDDTemplate_BindsToStepsAPI(t *testing.T) {
 	sym := ast.Symbol{Name: "X", Kind: ast.KindComponent, File: "https://x.test", Language: "ts"}
 	it := plan.Item{

@@ -146,6 +146,39 @@ async function collectPage(page, requestedURL) {
       return out
     }
     const isVisible = (el) => !!(el.offsetParent || (el.getClientRects && el.getClientRects().length))
+    // v0.95.1: visible-label resolver. Three steps, first match wins.
+    // Uses el.getRootNode() so a label inside a shadow root resolves
+    // against its own root, not document. Empty when nothing matches —
+    // template humanField falls back to aria / placeholder / name.
+    function labelTextFor(el) {
+      const root = el.getRootNode()
+      const id = el.id || el.getAttribute('id')
+      if (id) {
+        try {
+          const sel = `label[for="${CSS && CSS.escape ? CSS.escape(id) : id}"]`
+          const lbl = root.querySelector(sel)
+          if (lbl && lbl.textContent) return lbl.textContent.trim().slice(0, 200)
+        } catch { /* invalid id selector */ }
+      }
+      let p = el.parentElement
+      while (p) {
+        if (p.tagName === 'LABEL') {
+          const txt = (p.textContent || '').trim()
+          if (txt) return txt.slice(0, 200)
+        }
+        p = p.parentElement
+      }
+      const labelledBy = el.getAttribute('aria-labelledby')
+      if (labelledBy) {
+        try {
+          const ref = root.getElementById
+            ? root.getElementById(labelledBy)
+            : root.querySelector('#' + (CSS && CSS.escape ? CSS.escape(labelledBy) : labelledBy))
+          if (ref && ref.textContent) return ref.textContent.trim().slice(0, 200)
+        } catch { /* */ }
+      }
+      return ''
+    }
 
     const formEls = deepQueryAll(document, 'form')
     const hasForm = formEls.length > 0
@@ -164,6 +197,7 @@ async function collectPage(page, requestedURL) {
           aria: el.getAttribute('aria-label') || '',
           placeholder: el.getAttribute('placeholder') || '',
           required: el.hasAttribute('required'),
+          labelText: labelTextFor(el),
         })
       }
       forms.push({
@@ -185,6 +219,7 @@ async function collectPage(page, requestedURL) {
         placeholder: el.getAttribute('placeholder') || '',
         required: el.hasAttribute('required'),
         visible: isVisible(el),
+        labelText: labelTextFor(el),
       })
     }
     return { hasForm, forms, inputs }
@@ -318,6 +353,37 @@ async function collectPage(page, requestedURL) {
       const role = el.getAttribute && el.getAttribute('role')
       return tag + id + (role ? `[role="${role}"]` : '')
     }
+    // v0.95.1: same visible-label resolver as the shadowScan block,
+    // duplicated here because page.evaluate scopes are separate.
+    function labelTextFor(el) {
+      const root = el.getRootNode()
+      const id = el.id || el.getAttribute('id')
+      if (id) {
+        try {
+          const sel = `label[for="${CSS && CSS.escape ? CSS.escape(id) : id}"]`
+          const lbl = root.querySelector(sel)
+          if (lbl && lbl.textContent) return lbl.textContent.trim().slice(0, 200)
+        } catch { /* */ }
+      }
+      let p = el.parentElement
+      while (p) {
+        if (p.tagName === 'LABEL') {
+          const txt = (p.textContent || '').trim()
+          if (txt) return txt.slice(0, 200)
+        }
+        p = p.parentElement
+      }
+      const labelledBy = el.getAttribute('aria-labelledby')
+      if (labelledBy) {
+        try {
+          const ref = root.getElementById
+            ? root.getElementById(labelledBy)
+            : root.querySelector('#' + (CSS && CSS.escape ? CSS.escape(labelledBy) : labelledBy))
+          if (ref && ref.textContent) return ref.textContent.trim().slice(0, 200)
+        } catch { /* */ }
+      }
+      return ''
+    }
     function inputsIn(root) {
       const out = []
       for (const el of deepQueryAll(root, 'input, select, textarea')) {
@@ -332,6 +398,7 @@ async function collectPage(page, requestedURL) {
           aria: el.getAttribute('aria-label') || '',
           placeholder: el.getAttribute('placeholder') || '',
           required: el.hasAttribute('required'),
+          labelText: labelTextFor(el),
         }
         if (tag === 'select') {
           const opts = []
@@ -428,7 +495,7 @@ async function main() {
           constructor() {
             super()
             const sr = this.attachShadow({mode:'open'})
-            sr.innerHTML = '<form><input type="number" name="bruto"><input type="number" name="partner"><select name="energielabel"><option>A</option><option>B</option><option>C</option></select><button role="button">Bereken</button></form>'
+            sr.innerHTML = '<form><label for="bruto-id">Bruto jaarinkomen</label><input id="bruto-id" type="number" name="bruto"><input type="number" name="partner" aria-label="Partner-inkomen"><label for="energy-id">Energielabel</label><select id="energy-id" name="energielabel"><option>A</option><option>B</option><option>C</option></select><button role="button">Bereken</button></form>'
           }
         }
         customElements.define('flex-calc', FlexCalc)
@@ -436,13 +503,19 @@ async function main() {
     </body></html>`)
     const p = await collectPage(page, 'about:blank')
     const pc = p.primaryComponent
+    const brutoInput = pc && pc.inputs.find(i => i.name === 'bruto')
+    const partnerInput = pc && pc.inputs.find(i => i.name === 'partner')
+    const energyInput = pc && pc.inputs.find(i => i.tag === 'select')
     const ok =
       p.hasForm &&
       p.inputs.length >= 3 &&
       p.roleAnchors.length >= 1 &&
       pc && pc.inputs.length === 3 &&
       pc.selector.includes('flex-calc') &&
-      pc.inputs.some(i => i.tag === 'select' && Array.isArray(i.optionValues) && i.optionValues.length === 3)
+      energyInput && Array.isArray(energyInput.optionValues) && energyInput.optionValues.length === 3 &&
+      brutoInput && brutoInput.labelText === 'Bruto jaarinkomen' &&
+      partnerInput && partnerInput.aria === 'Partner-inkomen' &&
+      energyInput.labelText === 'Energielabel'
     await browser.close()
     if (!ok) {
       console.error('selftest FAILED', JSON.stringify({

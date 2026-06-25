@@ -47,7 +47,7 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
     # Form fill + submit (positive path)
 {{- range $i := .Symbol.Inputs }}
 {{- if and $i.Required (not (or (eq $i.Type "submit") (eq $i.Type "hidden"))) }}
-    And I enter "{{fillValueFor $i}}" into the "{{or $i.Name $i.Placeholder $i.Type}}" field
+    And I enter "{{fillValueFor $i}}" into the "{{humanField $i}}" field
 {{- end }}
 {{- end }}
     And I submit the form
@@ -70,7 +70,7 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
     Then I remain on the same page
 {{- range $i := .Symbol.Inputs }}
 {{- if and $i.Required (not (or (eq $i.Type "submit") (eq $i.Type "hidden"))) }}
-    When I enter "{{fillValueFor $i}}" into the "{{or $i.Name $i.Placeholder $i.Type}}" field
+    When I enter "{{fillValueFor $i}}" into the "{{humanField $i}}" field
 {{- end }}
 {{- end }}
     When I submit the form
@@ -87,9 +87,9 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
 {{- if $rows }}
 
   @journey:{{$.JourneyKind}} @priority:{{journeyPriority $.JourneyKind}} @kind:param
-  Scenario Outline: {{$.JourneyKind}} — {{or $f.Name $f.Placeholder $f.Type}} accepts <variant> values
+  Scenario Outline: {{$.JourneyKind}} — {{humanField $f}} accepts <variant> values
     Given I open the landing page
-    When I enter "<value>" into the "{{or $f.Name $f.Placeholder $f.Type}}" field
+    When I enter "<value>" into the "{{humanField $f}}" field
     When I submit the form
     Then no error message is shown in the form region
 
@@ -115,9 +115,9 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
 {{- if $rows }}
 
   @journey:{{$.JourneyKind}} @priority:{{journeyPriority $.JourneyKind}} @kind:component @field:{{or $f.Name $f.Type}}
-  Scenario Outline: fill the "{{or $f.Name $f.Placeholder $f.Type}}" field with <example>
+  Scenario Outline: fill the "{{humanField $f}}" field with <example>
     Given I open the landing page
-    When I enter "<example>" into the "{{or $f.Name $f.Placeholder $f.Type}}" field
+    When I enter "<example>" into the "{{humanField $f}}" field
     When I submit the form
     Then no error message is shown in the form region
 
@@ -139,15 +139,15 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
   @journey:{{$.JourneyKind}} @priority:{{journeyPriority $.JourneyKind}} @kind:boundary
   Scenario: {{$.JourneyKind}} — long input does not break the form
     Given I open the landing page
-    When I enter "{{boundaryValueFor $f}}" into the "{{or $f.Name $f.Placeholder $f.Type}}" field
+    When I enter "{{boundaryValueFor $f}}" into the "{{humanField $f}}" field
     Then no error message is shown in the form region
 
   @journey:{{$.JourneyKind}} @priority:{{journeyPriority $.JourneyKind}} @kind:tab-order
-  Scenario: {{$.JourneyKind}} — tab order reaches the {{or $f.Name $f.Placeholder $f.Type}} field
+  Scenario: {{$.JourneyKind}} — tab order reaches the {{humanField $f}} field
     Given I open the landing page
-    When I focus the "{{or $f.Name $f.Placeholder $f.Type}}" field
-    When I enter "{{fillValueFor $f}}" into the "{{or $f.Name $f.Placeholder $f.Type}}" field
-    Then the "{{or $f.Name $f.Placeholder $f.Type}}" field has the value "{{fillValueFor $f}}"
+    When I focus the "{{humanField $f}}" field
+    When I enter "{{fillValueFor $f}}" into the "{{humanField $f}}" field
+    Then the "{{humanField $f}}" field has the value "{{fillValueFor $f}}"
 {{- end }}
 {{- end }}
 
@@ -195,7 +195,7 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
   @journey:{{$.JourneyKind}} @priority:{{journeyPriority $.JourneyKind}} @kind:overflow
   Scenario: {{$.JourneyKind}} — oversized input does not crash the page
     Given I open the landing page
-    When I enter "{{oversizedValueFor $f}}" into the "{{or $f.Name $f.Placeholder $f.Type}}" field
+    When I enter "{{oversizedValueFor $f}}" into the "{{humanField $f}}" field
     Then no error message is shown in the form region
 {{- end }}
 {{- end }}

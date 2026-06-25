@@ -749,6 +749,20 @@ var funcs = template.FuncMap{
 		}
 		return "/"
 	},
+	// humanField picks the best human-readable display string for a
+	// form input. Priority: visible <label> text → aria-label →
+	// placeholder → name (kept verbatim so fillForm's [name="..."]
+	// fallback still resolves) → type. The @field:<Name> tag stays
+	// on the raw Name for grep-ability; this helper is for the
+	// title / step text. v0.95.1.
+	"humanField": func(i ast.FormInput) string {
+		for _, s := range []string{i.LabelText, i.Aria, i.Placeholder, i.Name} {
+			if t := strings.TrimSpace(s); t != "" {
+				return t
+			}
+		}
+		return i.Type
+	},
 	// suiteHasAuthJourney reports whether the suite includes an
 	// authenticate journey. Used to gate v0.38 @state:logged-in /
 	// @state:anonymous variants — there's no point emitting them
