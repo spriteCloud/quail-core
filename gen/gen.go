@@ -739,27 +739,6 @@ var funcs = template.FuncMap{
 	"paramRowsFor": paramRowsFor,
 	"paramRowVariant": func(r paramRow) string { return r.Variant },
 	"paramRowValue":   func(r paramRow) string { return r.Value },
-	// componentInputs surfaces the primary-component inputs to the
-	// template — calculator widgets, hero forms, the dominant <form>.
-	// Returns nil when the page has no detected primary component
-	// (the template's existing firstTextInput branch handles those).
-	// v0.94.
-	"componentInputs": func(s ast.Symbol) []ast.FormInput {
-		if s.PrimaryComponent == nil {
-			return nil
-		}
-		return s.PrimaryComponent.Inputs
-	},
-	// componentSelector returns the human-readable selector for the
-	// primary component (e.g. "flex-calc", "main", "form#contact").
-	// Empty string when no primary component was detected.
-	// v0.94.
-	"componentSelector": func(s ast.Symbol) string {
-		if s.PrimaryComponent == nil {
-			return ""
-		}
-		return s.PrimaryComponent.Selector
-	},
 	// suiteHasAuthJourney reports whether the suite includes an
 	// authenticate journey. Used to gate v0.38 @state:logged-in /
 	// @state:anonymous variants — there's no point emitting them

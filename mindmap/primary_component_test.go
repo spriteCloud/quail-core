@@ -20,7 +20,7 @@ func TestPrimaryComponent_NoRegressionOnTagging(t *testing.T) {
 			{Name: "energielabel", Type: "select", OptionValues: []string{"A", "B", "C"}},
 		},
 		Anchors: []ast.LocatorAnchor{{Role: "button"}},
-		PrimaryComponent: &ComponentRef{
+		PrimaryComponent: &ast.PrimaryComponent{
 			Selector: "flex-calc",
 			Inputs: []ast.FormInput{
 				{Name: "bruto", Type: "number"},

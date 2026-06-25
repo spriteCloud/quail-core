@@ -260,9 +260,22 @@ func browserPageToMindmap(bp browserPage) *mindmap.Page {
 	// v0.94: primary component (`<main>`, shadow-host calculator, or
 	// the dominant <form>). Drives per-input Scenario Outline fan-out
 	// downstream. Detection runs in probe.mjs; we just copy the shape.
+	// Inputs sharing a (Name, Type) pair are deduped here so the
+	// generator doesn't emit two identical Scenario Outlines for
+	// pages that render a field twice (hidden + visible, ARIA-mirror,
+	// etc.). Empty-Name inputs are kept — they're distinct fields
+	// that simply lack a `name` attribute.
 	if bp.PrimaryComponent != nil && len(bp.PrimaryComponent.Inputs) > 0 {
-		pc := &mindmap.ComponentRef{Selector: bp.PrimaryComponent.Selector}
+		pc := &ast.PrimaryComponent{Selector: bp.PrimaryComponent.Selector}
+		seen := map[string]bool{}
 		for _, in := range bp.PrimaryComponent.Inputs {
+			if in.Name != "" {
+				key := in.Name + "|" + in.Type
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+			}
 			pc.Inputs = append(pc.Inputs, ast.FormInput{
 				Tag:          in.Tag,
 				Type:         in.Type,

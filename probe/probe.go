@@ -1854,6 +1854,22 @@ func itemFromJourney(j mindmap.Journey, sourceURL string, projectLabel string) p
 		}
 		syms = append(syms, s)
 	}
+	// v0.94.1: multi-step journeys (browse/convert with deep terminal)
+	// render against syms[0] (the landing). Without help, calculator
+	// pages reached by browse never emit the per-input Outlines that
+	// Exercise journeys (single-page) get for free. Promote the first
+	// non-nil PrimaryComponent we find in the chain onto syms[0] so the
+	// template can fan out scenarios anchored to the calculator widget
+	// regardless of journey shape. ponytail: cheap promotion in lieu of
+	// changing the template to render against the terminal Symbol.
+	if syms[0].PrimaryComponent == nil {
+		for _, s := range syms[1:] {
+			if s.PrimaryComponent != nil {
+				syms[0].PrimaryComponent = s.PrimaryComponent
+				break
+			}
+		}
+	}
 	stem := outPathStemForJourney(j)
 	_ = sourceURL
 	return plan.Item{
@@ -1922,18 +1938,8 @@ func symbolFromPage(p *mindmap.Page, projectLabel string) ast.Symbol {
 		Meta:             p.Meta,
 		PageTitle:        p.Title,
 		HasForm:          p.HasForm,
-		PrimaryComponent: primaryComponentToAST(p.PrimaryComponent),
+		PrimaryComponent: p.PrimaryComponent,
 	}
-}
-
-// primaryComponentToAST projects the mindmap ref into the ast shape
-// the template helpers consume. Returns nil when the source is nil
-// or empty so downstream `with`/`range` blocks fall through.
-func primaryComponentToAST(c *mindmap.ComponentRef) *ast.PrimaryComponent {
-	if c == nil || len(c.Inputs) == 0 {
-		return nil
-	}
-	return &ast.PrimaryComponent{Selector: c.Selector, Inputs: c.Inputs}
 }
 
 // featurePathFor rewrites a `tests/e2e/<x>.spec.ts` path to its sibling
@@ -2018,7 +2024,7 @@ func fuzzItemForPage(p *mindmap.Page, sourceURL string, projectLabel string) pla
 		Inputs:           p.Inputs,
 		Interactions:     p.Interactions,
 		PageTitle:        p.Title,
-		PrimaryComponent: primaryComponentToAST(p.PrimaryComponent),
+		PrimaryComponent: p.PrimaryComponent,
 	}
 	stem := "fuzz"
 	if slug := pathSlug(p.URL); slug != "" {
