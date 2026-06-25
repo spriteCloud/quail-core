@@ -54,11 +54,15 @@ func TestFeatureTemplate_PrimaryComponent_FansOutPerInput(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected %q tag in feature output", want)
 		}
-		title := `Scenario Outline: fill the "` + f.Name + `" field with <example>`
+		// humanField cascades Label/Aria/Placeholder/humanize(Name) →
+		// the fixture has only Name set, so the display is the
+		// humanised form ("bruto-jaarinkomen" → "Bruto jaarinkomen").
+		display := humanizeIdentifier(f.Name)
+		title := `Scenario Outline: fill the "` + display + `" field with <example>`
 		if !strings.Contains(body, title) {
 			t.Errorf("expected outline title %q in feature output", title)
 		}
-		step := `When I enter "<example>" into the "` + f.Name + `" field`
+		step := `When I enter "<example>" into the "` + display + `" field`
 		if !strings.Contains(body, step) {
 			t.Errorf("expected step %q in feature output", step)
 		}

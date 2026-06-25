@@ -33,19 +33,33 @@ async function visit(page: Page, path: string): Promise<void> {
 }
 
 /**
- * Fill a set of named form inputs by trying, in order:
- *   1. getByLabel(<key>)
- *   2. getByPlaceholder(<key>)
- *   3. locator('[name="<key>"]')
+ * Fill a set of named form inputs. Cascades from most-explicit to
+ * most-permissive so humanized scenario titles ("Monthly income")
+ * still resolve to inputs whose `name` attribute is `monthlyIncome`,
+ * `monthly_income`, `monthly-income`, etc. Order:
+ *
+ *   1. getByLabel(<key>)                       — visible <label>
+ *   2. getByPlaceholder(<key>)                 — placeholder text
+ *   3. [name="<key>"]                          — literal name match
+ *   4. [aria-label="<key>" i]                  — case-insensitive aria
+ *   5. [name="<denormalised>"]                 — try camelCase / snake / kebab
+ *   6. input[name*="<firstWord>" i]            — substring fallback
+ *
  * Whichever matches first wins. Silently skips unmatched keys so a
  * single helper handles forms whose field set varies across pages.
  */
 async function fillForm(page: Page, values: FormValues): Promise<void> {
   for (const [key, value] of Object.entries(values)) {
+    const normals = denormaliseKey(key)
+    const firstWord = key.trim().split(/\s+/)[0] || key
+    const escapedAria = key.replace(/"/g, '\\"')
     const candidates: Locator[] = [
       page.getByLabel(key, { exact: false }),
       page.getByPlaceholder(key),
       page.locator(`[name="${key}"]`),
+      page.locator(`[aria-label="${escapedAria}" i]`),
+      ...normals.map(n => page.locator(`[name="${n}"]`)),
+      page.locator(`input[name*="${firstWord}" i], select[name*="${firstWord}" i], textarea[name*="${firstWord}" i]`),
     ]
     for (const loc of candidates) {
       if (await loc.first().count() > 0) {
@@ -54,6 +68,30 @@ async function fillForm(page: Page, values: FormValues): Promise<void> {
       }
     }
   }
+}
+
+/**
+ * denormaliseKey turns a humanized label like "Monthly income" into
+ * the identifier shapes a DOM input's `name=` is likely to use:
+ * camelCase, snake_case, kebab-case, lowercase-joined. Returns the
+ * variants in priority order; duplicates removed. Empty when the key
+ * was already in identifier shape (no spaces).
+ */
+function denormaliseKey(key: string): string[] {
+  const trimmed = key.trim()
+  if (!/\s/.test(trimmed)) return []
+  const words = trimmed.split(/\s+/).map(w => w.toLowerCase())
+  if (!words.length) return []
+  const camel = words[0] + words.slice(1).map(w => w[0].toUpperCase() + w.slice(1)).join('')
+  const snake = words.join('_')
+  const kebab = words.join('-')
+  const joined = words.join('')
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const v of [camel, snake, kebab, joined]) {
+    if (!seen.has(v)) { seen.add(v); out.push(v) }
+  }
+  return out
 }
 
 /**

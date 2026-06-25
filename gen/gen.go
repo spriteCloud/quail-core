@@ -751,15 +751,24 @@ var funcs = template.FuncMap{
 	},
 	// humanField picks the best human-readable display string for a
 	// form input. Priority: visible <label> text → aria-label →
-	// placeholder → name (kept verbatim so fillForm's [name="..."]
-	// fallback still resolves) → type. The @field:<Name> tag stays
-	// on the raw Name for grep-ability; this helper is for the
-	// title / step text. v0.95.1.
+	// placeholder → humanize(name) → name (verbatim safety net) →
+	// type. The humanize step turns `monthlyIncome` / `bruto_jaarinkomen`
+	// / `hyphen-name` into Title Case. The step-def fillForm's
+	// candidate chain (pw_steps.tmpl) is permissive enough that the
+	// humanized title still resolves to the underlying input. The
+	// @field:<Name> tag stays on the raw Name for grep-ability.
+	// v0.95.2.
 	"humanField": func(i ast.FormInput) string {
-		for _, s := range []string{i.LabelText, i.Aria, i.Placeholder, i.Name} {
+		for _, s := range []string{i.LabelText, i.Aria, i.Placeholder} {
 			if t := strings.TrimSpace(s); t != "" {
 				return t
 			}
+		}
+		if n := strings.TrimSpace(i.Name); n != "" {
+			if h := humanizeIdentifier(n); h != "" {
+				return h
+			}
+			return n
 		}
 		return i.Type
 	},
@@ -1310,6 +1319,65 @@ func paramRowsFor(i ast.FormInput) []paramRow {
 		}
 	}
 	return nil
+}
+
+// humanizeIdentifier turns common identifier shapes into Title-cased
+// English. Used by humanField as the last fallback before the bare
+// Name when no LabelText / Aria / Placeholder is captured. Handles
+// camelCase, snake_case, kebab-case, and SCREAMING_SNAKE. Leaves
+// strings already containing spaces alone (assume already readable).
+// v0.95.2.
+func humanizeIdentifier(s string) string {
+	// Already human-shaped (any whitespace at all → leave alone).
+	if s == "" || strings.ContainsAny(s, " \t\n") {
+		return s
+	}
+	// Split on _ and -, then split camelCase boundaries inside each.
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == '_' || r == '-'
+	})
+	var words []string
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		// Split camelCase / PascalCase boundaries.
+		var cur []rune
+		runes := []rune(p)
+		for i, r := range runes {
+			isUpper := r >= 'A' && r <= 'Z'
+			if isUpper && i > 0 {
+				prev := runes[i-1]
+				nextIsLower := i+1 < len(runes) && runes[i+1] >= 'a' && runes[i+1] <= 'z'
+				if (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z' && nextIsLower) {
+					if len(cur) > 0 {
+						words = append(words, string(cur))
+					}
+					cur = cur[:0]
+				}
+			}
+			cur = append(cur, r)
+		}
+		if len(cur) > 0 {
+			words = append(words, string(cur))
+		}
+	}
+	if len(words) == 0 {
+		return s
+	}
+	for i, w := range words {
+		lower := strings.ToLower(w)
+		if i == 0 {
+			r := []rune(lower)
+			if len(r) > 0 && r[0] >= 'a' && r[0] <= 'z' {
+				r[0] -= 32
+			}
+			words[i] = string(r)
+		} else {
+			words[i] = lower
+		}
+	}
+	return strings.Join(words, " ")
 }
 
 type renderData struct {

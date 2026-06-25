@@ -34,7 +34,7 @@ func TestFeatureTemplate_EmitsTaggedScenario(t *testing.T) {
 	mustContain(t, body, "@journey:convert @priority:critical @smoke")
 	mustContain(t, body, "Scenario: convert journey reaches its terminal page")
 	mustContain(t, body, "Given I open the landing page")
-	mustContain(t, body, `And I enter "test@example.com" into the "email" field`)
+	mustContain(t, body, `And I enter "test@example.com" into the "Email" field`)
 	mustContain(t, body, "And I submit the form")
 	mustContain(t, body, "@journey:convert @priority:critical @negative")
 	mustContain(t, body, "Scenario: convert — empty submission is rejected")
@@ -138,10 +138,12 @@ func TestFeatureTemplate_HumanField_PrefersLabelText(t *testing.T) {
 	}
 }
 
-// When LabelText / Aria / Placeholder are all empty, fall back to
-// Name so step-def `[name="..."]` resolution still works. No
-// regression on pages without labels.
-func TestFeatureTemplate_HumanField_FallsBackToName(t *testing.T) {
+// When LabelText / Aria / Placeholder are all empty, fall back to a
+// humanised version of Name ("monthlyIncome" → "Monthly income"). The
+// step-def fillForm cascades through label/aria/name candidates so
+// the humanised title still resolves to <input name="monthlyIncome">.
+// v0.95.2.
+func TestFeatureTemplate_HumanField_FallsBackToHumanizedName(t *testing.T) {
 	landing := ast.Symbol{
 		Name: "X", Kind: ast.KindComponent,
 		File: "https://x.test/calc", Language: "ts",
@@ -167,7 +169,8 @@ func TestFeatureTemplate_HumanField_FallsBackToName(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(out[0].Content)
-	mustContain(t, body, `Scenario Outline: fill the "monthlyIncome" field with <example>`)
+	mustContain(t, body, `Scenario Outline: fill the "Monthly income" field with <example>`)
+	mustContain(t, body, `@field:monthlyIncome`)
 }
 
 func TestStepDefsBDDTemplate_BindsToStepsAPI(t *testing.T) {

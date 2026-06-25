@@ -28,13 +28,17 @@ func TestFeatureTemplate_ScenarioOutlineEmittedForTextInputs(t *testing.T) {
 	body := string(out[0].Content)
 	mustContain(t, body, "@kind:param")
 	mustContain(t, body, "Scenario Outline:")
-	mustContain(t, body, "email accepts <variant> values")
+	mustContain(t, body, "Email accepts <variant> values")
 	mustContain(t, body, "Examples:")
 	mustContain(t, body, "| typical |")
 	mustContain(t, body, "jane@example.com")
 	mustContain(t, body, "plus-alias")
 	mustContain(t, body, "subdomain")
-	if !strings.Contains(body, `When I enter "<value>" into the "email" field`) {
+	// v0.95.2: humanField title-cases the input name when no Label/
+	// Aria/Placeholder is captured ("email" → "Email"). Step-def
+	// fillForm's case-insensitive label + denormalise fallback still
+	// resolves to <input name="email">.
+	if !strings.Contains(body, `When I enter "<value>" into the "Email" field`) {
 		t.Errorf("Outline step should use the <value> placeholder: %s", body)
 	}
 }
