@@ -742,6 +742,21 @@ var funcs = template.FuncMap{
 	// realisticValueFor picks one median-sensible value per input —
 	// the value baked into the happy-compute Scenario. v0.95.6.
 	"realisticValueFor": realisticValueFor,
+	// allInputsAreNumeric gates the boundary-value Scenario Outline on
+	// the primary component — only safe to fire when every input takes
+	// a number (otherwise `| zero | 0 |` lands in a date / email
+	// field). v0.10.12.
+	"allInputsAreNumeric": func(inputs []ast.FormInput) bool {
+		if len(inputs) == 0 {
+			return false
+		}
+		for _, i := range inputs {
+			if inferInputType(i) != "number" {
+				return false
+			}
+		}
+		return true
+	},
 	// urlPath extracts the path component of Symbol.File for the
 	// Feature: title line. Falls back to "/" when the URL is bare /
 	// unparseable so the sidebar never shows an empty fragment.

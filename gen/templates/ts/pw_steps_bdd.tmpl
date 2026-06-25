@@ -107,6 +107,69 @@ Then('a result is shown', async ({ page }) => {
   await expect(errors).toHaveCount(0)
 })
 
+// v0.10.12: sad-path siblings for the primary-component scenarios.
+// Tolerant cascades — none of these assert a result *value*, but each
+// is a real check that catches obvious regressions.
+
+Then('a validation hint is shown', async ({ page }) => {
+  // Cascade: HTML5 form validity → ARIA invalid → role=alert →
+  // common error-text patterns across NL/EN/DE/PT/ES/FR.
+  const candidates = [
+    page.locator('[aria-invalid="true"]'),
+    page.locator('[role="alert"]'),
+    page.locator('.error, .field-error, .invalid, .has-error'),
+    page.locator('text=/required|verplicht|obrigat[óo]rio|invalid|ongeldig|fout|niet juist|missing|fehlt|erforderlich|requis/i'),
+  ]
+  for (const loc of candidates) {
+    if ((await loc.first().count()) > 0) {
+      await expect(loc.first()).toBeVisible({ timeout: 5000 })
+      return
+    }
+  }
+  // Fallback: HTML5 constraint API on the first invalid input. If the
+  // browser is enforcing required/min/max, that's the validation hint
+  // even without a visible error region.
+  const anyInvalid = await page.evaluate(() => {
+    const inputs = document.querySelectorAll('input, select, textarea')
+    for (const el of Array.from(inputs)) {
+      const ce = el as HTMLInputElement
+      if (ce.validity && !ce.validity.valid) return true
+    }
+    return false
+  })
+  expect(anyInvalid, 'expected at least one validation signal').toBe(true)
+})
+
+Then('no result is shown', async ({ page }) => {
+  // Mirror of "a result is shown". For each result-shaped locator that
+  // exists on the page, assert it is NOT visible. If none exist, the
+  // assertion is vacuously satisfied — the page has no result widget
+  // to render, so by definition no result is shown.
+  const candidates = [
+    page.locator('[role="status"]'),
+    page.locator('[aria-live="polite"], [aria-live="assertive"]'),
+    page.locator('[data-result], [data-test-result], [data-testid*="result" i]'),
+    page.locator('output'),
+    page.locator('text=/[€$£¥]\\s?\\d/'),
+  ]
+  for (const loc of candidates) {
+    if ((await loc.first().count()) > 0) {
+      await expect(loc.first()).not.toBeVisible({ timeout: 2000 })
+      return
+    }
+  }
+})
+
+Then('the page does not crash', async ({ page }) => {
+  // The page is still alive: body visible, no generic error overlay.
+  // Cheap assertion that distinguishes "this scenario was bad input
+  // but the page kept running" from "this scenario broke the page".
+  await expect(page.locator('body')).toBeVisible()
+  await expect(
+    page.locator('text=/^(500|502|503|504|Application error|Something went wrong|Internal Server Error)$/i'),
+  ).toHaveCount(0)
+})
+
 Then('I remain on the same page', async ({ page }) => {
   // Implicit: the previous step (submit) didn't redirect. If a future
   // step needs a stricter assertion (URL hash unchanged, etc.) add it

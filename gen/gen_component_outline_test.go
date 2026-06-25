@@ -98,6 +98,58 @@ func TestFeatureTemplate_PrimaryComponent_FansOutPerInput(t *testing.T) {
 	mustContain(t, body, "@priority:critical @kind:component-submit")
 	mustContain(t, body, "Scenario: filling the primary component yields a result")
 	mustContain(t, body, "Then a result is shown")
+
+	// v0.10.12: sad-path siblings to the happy-compute Scenario.
+	// Each closes one obvious gap that v0.95.6 left open.
+	mustContain(t, body, "@kind:component-empty")
+	mustContain(t, body, "Scenario: empty submit on the primary component is rejected")
+	mustContain(t, body, "Then a validation hint is shown")
+
+	mustContain(t, body, "@kind:component-invalid")
+	mustContain(t, body, `When I enter "not-a-number" into the "Bruto jaarinkomen" field`)
+	mustContain(t, body, "Then no result is shown")
+
+	mustContain(t, body, "@kind:component-partial")
+	mustContain(t, body, "Then the page does not crash")
+
+	// All-numeric component (two number inputs + a select). Select
+	// breaks the all-numeric gate → boundary Outline must NOT fire.
+	if strings.Contains(body, "@kind:component-boundary") {
+		t.Errorf("boundary Outline fired despite a non-numeric input (select):\n%s", body)
+	}
+}
+
+// v0.10.12: when every primary-component input is numeric (the ING
+// hypotheek case with no select dropdown), the boundary Outline DOES
+// fire — three rows: zero, max-realistic, negative.
+func TestFeatureTemplate_PrimaryComponent_BoundaryOutlineForAllNumeric(t *testing.T) {
+	pc := &ast.PrimaryComponent{
+		Selector: "flex-calc",
+		Inputs: []ast.FormInput{
+			{Name: "applicant", LabelText: "Jouw bruto jaarinkomen"},
+			{Name: "partner", LabelText: "Bruto jaarinkomen partner"},
+		},
+	}
+	landing := ast.Symbol{
+		Name: "X", Kind: ast.KindComponent,
+		File: "https://x.test/", Language: "ts",
+		HasForm: true, Inputs: pc.Inputs, PrimaryComponent: pc,
+	}
+	it := plan.Item{
+		Symbol: landing, Symbols: []ast.Symbol{landing},
+		PageURL: landing.File, Template: plan.TmplPlaywrightFeature,
+		OutPath: "tests/e2e/features/x.feature", JourneyKind: "exercise",
+	}
+	out, err := Render([]plan.Item{it}, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(out[0].Content)
+	mustContain(t, body, "@kind:component-boundary")
+	mustContain(t, body, "Scenario Outline: primary component handles boundary numeric values")
+	mustContain(t, body, "| zero          | 0      |")
+	mustContain(t, body, "| max-realistic | 500000 |")
+	mustContain(t, body, "| negative      | -1     |")
 }
 
 // v0.95.6: when the primary component holds inputs the probe

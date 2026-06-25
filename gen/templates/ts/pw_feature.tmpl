@@ -147,6 +147,52 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} · {{urlPath .Symbol}}
 {{- end }}
     When I submit the form
     Then a result is shown
+
+  {{- /* v0.10.12: sad-path siblings to the happy-compute Scenario.
+         Four cheap scenarios that close the obvious gaps in calculator
+         coverage — none of them assert the result *value* (still the
+         hard problem) but each one is a real, deterministic check
+         backed by tolerant step-defs. */}}
+
+  @journey:{{$.JourneyKind}} @priority:critical @kind:component-empty
+  Scenario: empty submit on the primary component is rejected
+    Given I open the landing page
+    When I submit the form
+    Then a validation hint is shown
+
+{{- $first := index .Inputs 0 }}
+
+  @journey:{{$.JourneyKind}} @priority:standard @kind:component-invalid
+  Scenario: invalid input in the primary component does not yield a result
+    Given I open the landing page
+    When I enter "not-a-number" into the "{{humanField $first}}" field
+    When I submit the form
+    Then no result is shown
+
+  @journey:{{$.JourneyKind}} @priority:standard @kind:component-partial
+  Scenario: filling only the first primary-component input does not crash
+    Given I open the landing page
+    When I enter "{{realisticValueFor $first}}" into the "{{humanField $first}}" field
+    When I submit the form
+    Then the page does not crash
+
+{{- if and (gt (len .Inputs) 0) (allInputsAreNumeric .Inputs) }}
+
+  @journey:{{$.JourneyKind}} @priority:critical @kind:component-boundary
+  Scenario Outline: primary component handles boundary numeric values
+    Given I open the landing page
+{{- range $f := .Inputs }}
+    When I enter "<value>" into the "{{humanField $f}}" field
+{{- end }}
+    When I submit the form
+    Then the page does not crash
+
+    Examples:
+      | case          | value  |
+      | zero          | 0      |
+      | max-realistic | 500000 |
+      | negative      | -1     |
+{{- end }}
 {{- end }}
 {{- end }}
 
