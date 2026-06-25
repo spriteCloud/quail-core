@@ -125,16 +125,34 @@ async function collectPage(page, requestedURL) {
     }
   })
 
-  // Form presence + named inputs.
-  const hasForm = (await page.locator('form').count()) > 0
+  // v0.93: shadow-DOM piercing. Modern bank/insurer/telco sites render
+  // calculators as flex components (custom elements with open shadow
+  // roots) — e.g. ING's hypotheek-berekenen widget. Plain
+  // document.querySelectorAll and page.locator(css) don't cross shadow
+  // boundaries, so inputs/buttons inside the widget are invisible. We
+  // walk shadowRoot recursively (open roots only — closed roots are
+  // unreachable by spec).
+  // ponytail: same-doc only; iframe traversal when a real fixture demands it.
+  const shadowScan = await page.evaluate(() => {
+    function deepQueryAll(root, selector, depth = 0, out = []) {
+      if (depth > 8) return out
+      try {
+        for (const el of root.querySelectorAll(selector)) out.push(el)
+      } catch { /* selector failure on non-Element root */ }
+      const all = root.querySelectorAll ? root.querySelectorAll('*') : []
+      for (const el of all) {
+        if (el.shadowRoot) deepQueryAll(el.shadowRoot, selector, depth + 1, out)
+      }
+      return out
+    }
+    const isVisible = (el) => !!(el.offsetParent || (el.getClientRects && el.getClientRects().length))
 
-  // Per-form submission contract: action, method, enctype, scoped inputs.
-  // Drives the API-contract test template; same-origin guard runs Go-side.
-  const forms = await page.evaluate(() => {
-    const out = []
-    for (const f of document.querySelectorAll('form')) {
+    const formEls = deepQueryAll(document, 'form')
+    const hasForm = formEls.length > 0
+    const forms = []
+    for (const f of formEls) {
       const inputs = []
-      for (const el of f.querySelectorAll('input, select, textarea')) {
+      for (const el of deepQueryAll(f, 'input, select, textarea')) {
         const tag = el.tagName.toLowerCase()
         const t = el.getAttribute('type') || ''
         if (tag === 'input' && (t === 'hidden' || t === 'submit' || t === 'button')) continue
@@ -148,29 +166,32 @@ async function collectPage(page, requestedURL) {
           required: el.hasAttribute('required'),
         })
       }
-      out.push({
+      forms.push({
         action: f.getAttribute('action') || '',
         method: (f.getAttribute('method') || '').toLowerCase(),
         enctype: (f.getAttribute('enctype') || '').toLowerCase(),
         inputs,
       })
     }
-    return out
+
+    const inputs = []
+    for (const el of deepQueryAll(document, 'input, select, textarea').slice(0, 40)) {
+      inputs.push({
+        tag: el.tagName.toLowerCase(),
+        type: el.getAttribute('type') || '',
+        name: el.getAttribute('name') || '',
+        testid: el.getAttribute('data-testid') || '',
+        aria: el.getAttribute('aria-label') || '',
+        placeholder: el.getAttribute('placeholder') || '',
+        required: el.hasAttribute('required'),
+        visible: isVisible(el),
+      })
+    }
+    return { hasForm, forms, inputs }
   })
-  const inputHandles = await page.locator('input, select, textarea').elementHandles()
-  const inputs = []
-  for (const h of inputHandles.slice(0, 40)) {
-    const tag = (await h.evaluate(el => el.tagName.toLowerCase())) || 'input'
-    const t = (await h.getAttribute('type')) || ''
-    const name = (await h.getAttribute('name')) || ''
-    const testid = (await h.getAttribute('data-testid')) || ''
-    const aria = (await h.getAttribute('aria-label')) || ''
-    const placeholder = (await h.getAttribute('placeholder')) || ''
-    const required = (await h.evaluate(el => el.hasAttribute('required'))) ?? false
-    const visible = await h.isVisible().catch(() => false)
-    inputs.push({ tag, type: t, name, testid, aria, placeholder, required, visible })
-    await h.dispose()
-  }
+  const hasForm = shadowScan.hasForm
+  const forms = shadowScan.forms
+  const inputs = shadowScan.inputs
 
   // Post-JS-render DOM snapshot — capped at 1 MiB so a single long page
   // doesn't blow the JSON pipe. Writes to tests/e2e/_dom/<slug>.html on
@@ -182,45 +203,51 @@ async function collectPage(page, requestedURL) {
   } catch { /* leave empty — caller skips emission */ }
 
   // Interactive components (the v0.12 exercise journey kinds).
+  // v0.93: shadow-piercing — same rationale as the form/input scan above.
   const interactions = await page.evaluate(() => {
+    function deepQueryAll(root, selector, depth = 0, out = []) {
+      if (depth > 8) return out
+      try {
+        for (const el of root.querySelectorAll(selector)) out.push(el)
+      } catch { /* */ }
+      const all = root.querySelectorAll ? root.querySelectorAll('*') : []
+      for (const el of all) {
+        if (el.shadowRoot) deepQueryAll(el.shadowRoot, selector, depth + 1, out)
+      }
+      return out
+    }
     const out = []
-    document.querySelectorAll('input[type="search"]').forEach(el => out.push({ kind: 'search', inputType: 'search' }))
-    document.querySelectorAll('[role="searchbox"]').forEach(() => out.push({ kind: 'search', role: 'searchbox' }))
-    document.querySelectorAll('details').forEach(el => {
+    deepQueryAll(document, 'input[type="search"]').forEach(el => out.push({ kind: 'search', inputType: 'search' }))
+    deepQueryAll(document, '[role="searchbox"]').forEach(() => out.push({ kind: 'search', role: 'searchbox' }))
+    deepQueryAll(document, 'details').forEach(el => {
       const summary = el.querySelector('summary')
       out.push({ kind: 'details', text: (summary?.innerText || '').trim() })
     })
-    document.querySelectorAll('dialog').forEach(() => out.push({ kind: 'dialog' }))
-    document.querySelectorAll('[role="tab"]').forEach(el => out.push({ kind: 'tab', text: (el.innerText || '').trim(), role: 'tab' }))
-    document.querySelectorAll('input[type="date"],input[type="time"],input[type="datetime-local"]').forEach(el => {
+    deepQueryAll(document, 'dialog').forEach(() => out.push({ kind: 'dialog' }))
+    deepQueryAll(document, '[role="tab"]').forEach(el => out.push({ kind: 'tab', text: (el.innerText || '').trim(), role: 'tab' }))
+    deepQueryAll(document, 'input[type="date"],input[type="time"],input[type="datetime-local"]').forEach(el => {
       out.push({ kind: 'date', inputType: el.getAttribute('type'), name: el.getAttribute('name') || '' })
     })
-    document.querySelectorAll('[data-toggle],[data-bs-toggle]').forEach(el => {
+    deepQueryAll(document, '[data-toggle],[data-bs-toggle]').forEach(el => {
       const t = el.getAttribute('data-toggle') || el.getAttribute('data-bs-toggle') || ''
       out.push({ kind: 'data-toggle', toggle: t, text: (el.innerText || '').trim() })
     })
-    document.querySelectorAll('[aria-haspopup]').forEach(el => {
-      // Skip popup if already covered by collapse (has aria-expanded + controls) or tab role.
+    deepQueryAll(document, '[aria-haspopup]').forEach(el => {
       if (el.getAttribute('aria-expanded') !== null && el.getAttribute('aria-controls') !== null) return
       if (el.getAttribute('role') === 'tab') return
       out.push({ kind: 'popup', text: (el.innerText || '').trim() })
     })
-    // v0.92: broaden capture for modern JS frameworks that rarely
-    // use the literal `role="tab"`/`<details>` patterns. Catches
-    // React Aria, MUI, Headless UI accordions/tabs/toggle buttons.
-    // Cap at 50 to bound noisy nav-heavy pages.
-    document.querySelectorAll('[aria-expanded]').forEach(el => {
+    deepQueryAll(document, '[aria-expanded]').forEach(el => {
       if (out.length >= 80) return
-      // Skip already-covered patterns to avoid double-counting.
       if (el.hasAttribute('data-toggle') || el.hasAttribute('data-bs-toggle')) return
       if (el.getAttribute('role') === 'tab') return
       out.push({ kind: 'collapsible', text: (el.innerText || '').trim().slice(0, 120), role: el.getAttribute('role') || '' })
     })
-    document.querySelectorAll('button[aria-pressed]').forEach(el => {
+    deepQueryAll(document, 'button[aria-pressed]').forEach(el => {
       if (out.length >= 80) return
       out.push({ kind: 'toggle', text: (el.innerText || '').trim().slice(0, 120) })
     })
-    document.querySelectorAll('input[type="range"]').forEach(el => {
+    deepQueryAll(document, 'input[type="range"]').forEach(el => {
       if (out.length >= 80) return
       out.push({ kind: 'slider', name: el.getAttribute('name') || '', inputType: 'range' })
     })
@@ -234,8 +261,19 @@ async function collectPage(page, requestedURL) {
   // The Go side dedups by tag+testid+aria+role+name so duplicate
   // captures are harmless. Capped at 50/page.
   const roleAnchors = await page.evaluate(() => {
+    function deepQueryAll(root, selector, depth = 0, out = []) {
+      if (depth > 8) return out
+      try {
+        for (const el of root.querySelectorAll(selector)) out.push(el)
+      } catch { /* */ }
+      const all = root.querySelectorAll ? root.querySelectorAll('*') : []
+      for (const el of all) {
+        if (el.shadowRoot) deepQueryAll(el.shadowRoot, selector, depth + 1, out)
+      }
+      return out
+    }
     const out = []
-    const els = document.querySelectorAll('[role="button"],[role="submit"],[role="link"],[role="menuitem"]')
+    const els = deepQueryAll(document, '[role="button"],[role="submit"],[role="link"],[role="menuitem"]')
     for (let i = 0; i < els.length && out.length < 50; i++) {
       const el = els[i]
       out.push({
@@ -295,6 +333,33 @@ function sameOrigin(originURL, candidateURL) {
 const isAvoided = (path) => /privacy|terms|cookie|legal|sitemap|rss|feed/i.test(path)
 
 async function main() {
+  if (process.env.QUAIL_PROBE_SELFTEST === '1') {
+    // ponytail: open shadow roots only; closed roots unreachable by spec.
+    const browser = await engine.launch({ headless: true })
+    const page = await browser.newPage()
+    await page.setContent(`<!doctype html><html><body>
+      <flex-calc></flex-calc>
+      <script>
+        class FlexCalc extends HTMLElement {
+          constructor() {
+            super()
+            const sr = this.attachShadow({mode:'open'})
+            sr.innerHTML = '<form><input type="number" name="bruto"><input type="number" name="partner"><select name="energielabel"><option>A</option></select><button role="button">Bereken</button></form>'
+          }
+        }
+        customElements.define('flex-calc', FlexCalc)
+      </script>
+    </body></html>`)
+    const p = await collectPage(page, 'about:blank')
+    const ok = p.hasForm && p.inputs.length >= 3 && p.roleAnchors.length >= 1
+    await browser.close()
+    if (!ok) {
+      console.error('selftest FAILED', JSON.stringify({hasForm: p.hasForm, inputs: p.inputs.length, roleAnchors: p.roleAnchors.length}))
+      process.exit(1)
+    }
+    console.log('selftest OK: shadow-DOM pierce found', p.inputs.length, 'inputs,', p.roleAnchors.length, 'role-anchors')
+    process.exit(0)
+  }
   const errors = []
   const seen = new Set()
   const order = []

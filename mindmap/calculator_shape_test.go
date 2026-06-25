@@ -81,6 +81,27 @@ func TestIsFormPage_NewsletterSignupRejected(t *testing.T) {
 	}
 }
 
+// v0.93: ING-shape flex calculator. The widget renders inputs and the
+// "Bereken" button inside a shadow root; once the browser probe pierces
+// shadow DOM, the Page that reaches mindmap looks like this — URL hint
+// "berekenen" + ≥2 numeric inputs + a role=button submit. Must emit
+// TagForm so JourneyConvert fires and a test gets generated.
+func TestIsFormPage_ShadowDOMCalculator_INGShape(t *testing.T) {
+	p := &Page{
+		URL:     "https://www.ing.nl/particulier/hypotheek/hypotheek-berekenen",
+		HasForm: true,
+		Inputs: []ast.FormInput{
+			{Name: "bruto-jaarinkomen", Type: "number"},
+			{Name: "partner-inkomen", Type: "number"},
+			{Name: "energielabel", Type: "select"},
+		},
+		Anchors: []ast.LocatorAnchor{{Role: "button"}},
+	}
+	if !isFormPage(p) {
+		t.Errorf("ING-shape flex calculator (berekenen URL + numeric inputs + role=button) must emit TagForm")
+	}
+}
+
 // Required attr alone is still enough — the pre-v0.92 path stays
 // intact.
 func TestIsFormPage_RequiredStillCounts(t *testing.T) {
