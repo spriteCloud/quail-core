@@ -739,6 +739,27 @@ var funcs = template.FuncMap{
 	"paramRowsFor": paramRowsFor,
 	"paramRowVariant": func(r paramRow) string { return r.Variant },
 	"paramRowValue":   func(r paramRow) string { return r.Value },
+	// componentInputs surfaces the primary-component inputs to the
+	// template — calculator widgets, hero forms, the dominant <form>.
+	// Returns nil when the page has no detected primary component
+	// (the template's existing firstTextInput branch handles those).
+	// v0.94.
+	"componentInputs": func(s ast.Symbol) []ast.FormInput {
+		if s.PrimaryComponent == nil {
+			return nil
+		}
+		return s.PrimaryComponent.Inputs
+	},
+	// componentSelector returns the human-readable selector for the
+	// primary component (e.g. "flex-calc", "main", "form#contact").
+	// Empty string when no primary component was detected.
+	// v0.94.
+	"componentSelector": func(s ast.Symbol) string {
+		if s.PrimaryComponent == nil {
+			return ""
+		}
+		return s.PrimaryComponent.Selector
+	},
 	// suiteHasAuthJourney reports whether the suite includes an
 	// authenticate journey. Used to gate v0.38 @state:logged-in /
 	// @state:anonymous variants — there's no point emitting them
@@ -1241,9 +1262,35 @@ func paramRowsFor(i ast.FormInput) []paramRow {
 			{"large", "1000000"},
 			{"negative", "-1"},
 			{"float", "3.14159"},
+			// v0.94: realistic mid-range values for calculator-style
+			// inputs (mortgage/insurance/loan widgets) so the
+			// Scenario Outline exercises actual happy-path numbers
+			// alongside the extremes.
+			{"min-realistic", "1000"},
+			{"joint-income", "60000"},
+			{"max-realistic", "500000"},
 			{"boundary-min", "-2147483648"},
 			{"boundary-max", "2147483647"},
 		}
+	case "select":
+		// v0.94: each captured <option> becomes one Scenario Outline
+		// row. The probe caps options at 12 to keep table size
+		// manageable. Empty list (lazy/async-loaded selects) returns
+		// nil so the template falls through.
+		rows := make([]paramRow, 0, len(i.OptionValues))
+		for _, v := range i.OptionValues {
+			v = strings.TrimSpace(v)
+			if v == "" {
+				continue
+			}
+			variant := strings.ToLower(v)
+			variant = strings.ReplaceAll(variant, " ", "-")
+			rows = append(rows, paramRow{variant, v})
+		}
+		if len(rows) == 0 {
+			return nil
+		}
+		return rows
 	case "text", "search", "textarea":
 		return []paramRow{
 			{"short", "sample"},

@@ -287,6 +287,89 @@ async function collectPage(page, requestedURL) {
     return out
   })
 
+  // v0.94: primary-component capture. Identifies "the main thing on
+  // this page" so the spec generator can fan scenarios around it
+  // (calculator inputs, hero form fields, etc.) instead of just
+  // probing the first text input. Detection order:
+  //   1. light-DOM <main> or [role="main"] containing a form
+  //   2. shadow host whose root contains a form with ≥2 inputs
+  //      (catches <flex-calc>-style web-component widgets)
+  //   3. plain DOM form with the most inputs (≥2)
+  // Returns null when nothing actionable is found.
+  // ponytail: light-DOM main + shadow-host fallback covers the
+  //   real-world cases we've seen (banking flex widgets, retailer
+  //   hero forms); add deeper hierarchies when a real site needs it.
+  const primaryComponent = await page.evaluate(() => {
+    function deepQueryAll(root, selector, depth = 0, out = []) {
+      if (depth > 8) return out
+      try {
+        for (const el of root.querySelectorAll(selector)) out.push(el)
+      } catch { /* */ }
+      const all = root.querySelectorAll ? root.querySelectorAll('*') : []
+      for (const el of all) {
+        if (el.shadowRoot) deepQueryAll(el.shadowRoot, selector, depth + 1, out)
+      }
+      return out
+    }
+    function selectorOf(el) {
+      if (!el) return ''
+      const tag = el.tagName ? el.tagName.toLowerCase() : ''
+      const id = el.id ? '#' + el.id : ''
+      const role = el.getAttribute && el.getAttribute('role')
+      return tag + id + (role ? `[role="${role}"]` : '')
+    }
+    function inputsIn(root) {
+      const out = []
+      for (const el of deepQueryAll(root, 'input, select, textarea')) {
+        const tag = el.tagName.toLowerCase()
+        const t = el.getAttribute('type') || ''
+        if (tag === 'input' && (t === 'hidden' || t === 'submit' || t === 'button')) continue
+        const row = {
+          tag,
+          type: t,
+          name: el.getAttribute('name') || '',
+          testid: el.getAttribute('data-testid') || '',
+          aria: el.getAttribute('aria-label') || '',
+          placeholder: el.getAttribute('placeholder') || '',
+          required: el.hasAttribute('required'),
+        }
+        if (tag === 'select') {
+          const opts = []
+          for (const o of el.querySelectorAll('option')) {
+            const v = (o.getAttribute('value') || o.textContent || '').trim()
+            if (v && opts.length < 12) opts.push(v)
+          }
+          row.optionValues = opts
+        }
+        out.push(row)
+      }
+      return out
+    }
+    // 1. light-DOM <main> or [role="main"]
+    const mainEl = document.querySelector('main, [role="main"]')
+    if (mainEl) {
+      const ins = inputsIn(mainEl)
+      if (ins.length >= 2) return { selector: 'main', inputs: ins }
+    }
+    // 2. shadow host with a form-like cluster
+    for (const el of document.querySelectorAll('*')) {
+      if (!el.shadowRoot) continue
+      const ins = inputsIn(el.shadowRoot)
+      if (ins.length >= 2) return { selector: selectorOf(el), inputs: ins }
+    }
+    // 3. fallback: plain form with the most inputs
+    let bestForm = null
+    let bestCount = 0
+    for (const f of deepQueryAll(document, 'form')) {
+      const ins = inputsIn(f)
+      if (ins.length > bestCount) { bestForm = f; bestCount = ins.length }
+    }
+    if (bestForm && bestCount >= 2) {
+      return { selector: selectorOf(bestForm), inputs: inputsIn(bestForm) }
+    }
+    return null
+  })
+
   return {
     url: requestedURL,
     finalURL,
@@ -300,6 +383,7 @@ async function collectPage(page, requestedURL) {
     inputs,
     interactions,
     roleAnchors,
+    primaryComponent,
     domHTML,
     forms,
   }
@@ -344,20 +428,30 @@ async function main() {
           constructor() {
             super()
             const sr = this.attachShadow({mode:'open'})
-            sr.innerHTML = '<form><input type="number" name="bruto"><input type="number" name="partner"><select name="energielabel"><option>A</option></select><button role="button">Bereken</button></form>'
+            sr.innerHTML = '<form><input type="number" name="bruto"><input type="number" name="partner"><select name="energielabel"><option>A</option><option>B</option><option>C</option></select><button role="button">Bereken</button></form>'
           }
         }
         customElements.define('flex-calc', FlexCalc)
       </script>
     </body></html>`)
     const p = await collectPage(page, 'about:blank')
-    const ok = p.hasForm && p.inputs.length >= 3 && p.roleAnchors.length >= 1
+    const pc = p.primaryComponent
+    const ok =
+      p.hasForm &&
+      p.inputs.length >= 3 &&
+      p.roleAnchors.length >= 1 &&
+      pc && pc.inputs.length === 3 &&
+      pc.selector.includes('flex-calc') &&
+      pc.inputs.some(i => i.tag === 'select' && Array.isArray(i.optionValues) && i.optionValues.length === 3)
     await browser.close()
     if (!ok) {
-      console.error('selftest FAILED', JSON.stringify({hasForm: p.hasForm, inputs: p.inputs.length, roleAnchors: p.roleAnchors.length}))
+      console.error('selftest FAILED', JSON.stringify({
+        hasForm: p.hasForm, inputs: p.inputs.length, roleAnchors: p.roleAnchors.length,
+        primaryComponent: pc,
+      }))
       process.exit(1)
     }
-    console.log('selftest OK: shadow-DOM pierce found', p.inputs.length, 'inputs,', p.roleAnchors.length, 'role-anchors')
+    console.log('selftest OK: shadow-DOM pierce found', p.inputs.length, 'inputs,', p.roleAnchors.length, 'role-anchors; primary=', pc.selector, 'with', pc.inputs.length, 'scoped inputs')
     process.exit(0)
   }
   const errors = []

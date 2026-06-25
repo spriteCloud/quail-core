@@ -92,6 +92,20 @@ type Symbol struct {
 	// (Redux reducers, Pinia actions, Zustand setters). Drives the
 	// jest_store template's per-action assertion loop.
 	StoreActions []string
+	// PrimaryComponent points the spec generator at the dominant
+	// page widget — a calculator, a hero form, the largest <form>.
+	// Drives per-input Scenario Outline fan-out in pw_feature.tmpl
+	// (v0.94). Nil for non-page symbols or pages with no actionable
+	// primary widget.
+	PrimaryComponent *PrimaryComponent
+}
+
+// PrimaryComponent is the AST mirror of mindmap.ComponentRef — same
+// shape, lives here so the template helpers can reference it without
+// the gen package importing mindmap.
+type PrimaryComponent struct {
+	Selector string
+	Inputs   []FormInput
 }
 
 // ContentAnchor describes a page-level text anchor — the <title>, an <h1>,
@@ -194,8 +208,13 @@ type FormInput struct {
 	Placeholder string // placeholder text, when present
 	LabelText   string // associated <label> text (via for=id match)
 	Tag         string // "input" | "select" | "textarea"
-	File        string
-	Line        int
+	// OptionValues lists the discrete values a <select> exposes. Empty
+	// for non-select inputs, or selects with no <option> children
+	// rendered at probe time. Drives Scenario Outline rows on the
+	// primary-component path (v0.94).
+	OptionValues []string
+	File         string
+	Line         int
 }
 
 type LocatorAnchor struct {

@@ -21,20 +21,26 @@ import (
 // browserPage is the on-the-wire shape emitted by the sidecar Playwright
 // script. Kept lower-case-keyed because the JSON producer is JavaScript.
 type browserPage struct {
-	URL          string             `json:"url"`
-	FinalURL     string             `json:"finalURL"`
-	Title        string             `json:"title"`
-	H1           []string           `json:"h1"`
-	H2s          []string           `json:"h2s"`
-	Links        []browserLink      `json:"links"`
-	Images       []browserImage     `json:"images"`
-	Meta         browserMeta        `json:"meta"`
-	HasForm      bool               `json:"hasForm"`
-	Inputs       []browserInput     `json:"inputs"`
-	Interactions []browserInteract  `json:"interactions"`
-	RoleAnchors  []browserRoleAnchor `json:"roleAnchors"`
-	DOMHTML      string             `json:"domHTML"`
-	Forms        []browserForm      `json:"forms"`
+	URL              string                  `json:"url"`
+	FinalURL         string                  `json:"finalURL"`
+	Title            string                  `json:"title"`
+	H1               []string                `json:"h1"`
+	H2s              []string                `json:"h2s"`
+	Links            []browserLink           `json:"links"`
+	Images           []browserImage          `json:"images"`
+	Meta             browserMeta             `json:"meta"`
+	HasForm          bool                    `json:"hasForm"`
+	Inputs           []browserInput          `json:"inputs"`
+	Interactions     []browserInteract       `json:"interactions"`
+	RoleAnchors      []browserRoleAnchor     `json:"roleAnchors"`
+	PrimaryComponent *browserPrimaryComponent `json:"primaryComponent"`
+	DOMHTML          string                  `json:"domHTML"`
+	Forms            []browserForm           `json:"forms"`
+}
+
+type browserPrimaryComponent struct {
+	Selector string         `json:"selector"`
+	Inputs   []browserInput `json:"inputs"`
 }
 
 type browserRoleAnchor struct {
@@ -73,14 +79,15 @@ type browserMeta struct {
 }
 
 type browserInput struct {
-	Tag         string `json:"tag"`
-	Type        string `json:"type"`
-	Name        string `json:"name"`
-	TestID      string `json:"testid"`
-	Aria        string `json:"aria"`
-	Placeholder string `json:"placeholder"`
-	Required    bool   `json:"required"`
-	Visible     bool   `json:"visible"`
+	Tag          string   `json:"tag"`
+	Type         string   `json:"type"`
+	Name         string   `json:"name"`
+	TestID       string   `json:"testid"`
+	Aria         string   `json:"aria"`
+	Placeholder  string   `json:"placeholder"`
+	Required     bool     `json:"required"`
+	Visible      bool     `json:"visible"`
+	OptionValues []string `json:"optionValues"`
 }
 
 type browserInteract struct {
@@ -239,14 +246,35 @@ func browserPageToMindmap(bp browserPage) *mindmap.Page {
 
 	for _, in := range bp.Inputs {
 		p.Inputs = append(p.Inputs, ast.FormInput{
-			Tag:         in.Tag,
-			Type:        in.Type,
-			Name:        in.Name,
-			TestID:      in.TestID,
-			Aria:        in.Aria,
-			Placeholder: in.Placeholder,
-			Required:    in.Required,
+			Tag:          in.Tag,
+			Type:         in.Type,
+			Name:         in.Name,
+			TestID:       in.TestID,
+			Aria:         in.Aria,
+			Placeholder:  in.Placeholder,
+			Required:     in.Required,
+			OptionValues: in.OptionValues,
 		})
+	}
+
+	// v0.94: primary component (`<main>`, shadow-host calculator, or
+	// the dominant <form>). Drives per-input Scenario Outline fan-out
+	// downstream. Detection runs in probe.mjs; we just copy the shape.
+	if bp.PrimaryComponent != nil && len(bp.PrimaryComponent.Inputs) > 0 {
+		pc := &mindmap.ComponentRef{Selector: bp.PrimaryComponent.Selector}
+		for _, in := range bp.PrimaryComponent.Inputs {
+			pc.Inputs = append(pc.Inputs, ast.FormInput{
+				Tag:          in.Tag,
+				Type:         in.Type,
+				Name:         in.Name,
+				TestID:       in.TestID,
+				Aria:         in.Aria,
+				Placeholder:  in.Placeholder,
+				Required:     in.Required,
+				OptionValues: in.OptionValues,
+			})
+		}
+		p.PrimaryComponent = pc
 	}
 
 	for _, ix := range bp.Interactions {

@@ -1909,20 +1909,31 @@ func symbolFromPage(p *mindmap.Page, projectLabel string) ast.Symbol {
 		name = hostToName(host)
 	}
 	return ast.Symbol{
-		Name:         name,
-		Kind:         ast.KindComponent,
-		File:         p.URL,
-		Language:     "ts",
-		Anchors:      p.Anchors,
-		Inputs:       p.Inputs,
-		Links:        p.Links,
-		Contents:     p.Contents,
-		Interactions: p.Interactions,
-		Images:       p.Images,
-		Meta:         p.Meta,
-		PageTitle:    p.Title,
-		HasForm:      p.HasForm,
+		Name:             name,
+		Kind:             ast.KindComponent,
+		File:             p.URL,
+		Language:         "ts",
+		Anchors:          p.Anchors,
+		Inputs:           p.Inputs,
+		Links:            p.Links,
+		Contents:         p.Contents,
+		Interactions:     p.Interactions,
+		Images:           p.Images,
+		Meta:             p.Meta,
+		PageTitle:        p.Title,
+		HasForm:          p.HasForm,
+		PrimaryComponent: primaryComponentToAST(p.PrimaryComponent),
 	}
+}
+
+// primaryComponentToAST projects the mindmap ref into the ast shape
+// the template helpers consume. Returns nil when the source is nil
+// or empty so downstream `with`/`range` blocks fall through.
+func primaryComponentToAST(c *mindmap.ComponentRef) *ast.PrimaryComponent {
+	if c == nil || len(c.Inputs) == 0 {
+		return nil
+	}
+	return &ast.PrimaryComponent{Selector: c.Selector, Inputs: c.Inputs}
 }
 
 // featurePathFor rewrites a `tests/e2e/<x>.spec.ts` path to its sibling
@@ -2000,13 +2011,14 @@ func fuzzItemForPage(p *mindmap.Page, sourceURL string, projectLabel string) pla
 		name = hostToName(host)
 	}
 	sym := ast.Symbol{
-		Name:         name,
-		Kind:         ast.KindComponent,
-		File:         p.URL,
-		Language:     "ts",
-		Inputs:       p.Inputs,
-		Interactions: p.Interactions,
-		PageTitle:    p.Title,
+		Name:             name,
+		Kind:             ast.KindComponent,
+		File:             p.URL,
+		Language:         "ts",
+		Inputs:           p.Inputs,
+		Interactions:     p.Interactions,
+		PageTitle:        p.Title,
+		PrimaryComponent: primaryComponentToAST(p.PrimaryComponent),
 	}
 	stem := "fuzz"
 	if slug := pathSlug(p.URL); slug != "" {

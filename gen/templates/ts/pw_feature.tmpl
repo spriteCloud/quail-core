@@ -102,6 +102,35 @@ Feature: {{.Symbol.Name}} — {{.JourneyKind}} journey
 {{- end }}
 {{- end }}
 
+{{- /* v0.94: primary-component fan-out. When the probe identified a
+       main page widget (calculator, hero form, dominant <form>),
+       emit one Scenario Outline per input on it. Drives 3+ scenarios
+       per calculator page (one per income/select dropdown/etc.) where
+       the firstTextInput path above emits zero (calculator inputs are
+       number/select, not text). Falls through cleanly when no primary
+       component was detected. */ -}}
+{{- with componentInputs .Symbol }}
+{{- $sel := componentSelector $.Symbol }}
+{{- range $f := . }}
+{{- $rows := paramRowsFor $f }}
+{{- if $rows }}
+
+  @journey:{{$.JourneyKind}} @priority:{{journeyPriority $.JourneyKind}} @kind:component @field:{{or $f.Name $f.Type}}
+  Scenario Outline: {{$sel}} — {{or $f.Name $f.Placeholder $f.Type}} accepts <variant>
+    Given I open the landing page
+    When I enter "<value>" into the "{{or $f.Name $f.Placeholder $f.Type}}" field
+    When I submit the form
+    Then no error message is shown in the form region
+
+    Examples:
+      | variant | value |
+{{- range $rows }}
+      | {{paramRowVariant .}} | {{paramRowValue .}} |
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- if and .Symbol.HasForm .Symbol.Inputs }}
 {{- /* Boundary-of-happy: a max-length value for the first text-like
        input. Asserts the field accepts up to its declared max

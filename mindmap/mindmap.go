@@ -56,6 +56,25 @@ type Page struct {
 	// HasDraggable is true when the page exposes a [draggable] or
 	// [ondrop] attribute — drives pw_dragdrop.tmpl emission (v0.45).
 	HasDraggable bool
+	// PrimaryComponent identifies the "main thing on this page" —
+	// landing-page hero form, calculator widget (often inside a
+	// shadow root, see fc63762), or the largest plain <form>. Nil
+	// when nothing actionable was detected. Drives per-input
+	// Scenario Outline fan-out in pw_feature.tmpl (v0.94).
+	PrimaryComponent *ComponentRef
+}
+
+// ComponentRef points the spec generator at a structural anchor on
+// the page — a hero form, a calculator widget, the dominant <form>.
+// The pipeline uses this to scope Scenario Outline rows to the
+// component's own inputs rather than every input on the page.
+type ComponentRef struct {
+	// Selector is a human-readable identifier (`main`, `flex-calc`,
+	// `form#contact`). Surfaces in feature scenario titles and the
+	// catalogue; not parsed by templates.
+	Selector string
+	// Inputs is the scoped FormInput list, same shape as Page.Inputs.
+	Inputs []ast.FormInput
 }
 
 // Fetcher abstracts plan/probe's Fetch — injected so the mindmap package
